@@ -1773,6 +1773,18 @@ html, body {
   color: var(--neon-cyan);
   line-height: 1.5;
 }
+.pi-model-rec {
+  font-size: 11px;
+  color: var(--neon-orange);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.pi-model-rec strong {
+  color: #fff;
+}
+.pi-model-label {
+  opacity: 0.7;
+}
 .pi-underutil {
   font-size: 10px;
   color: var(--neon-yellow);

@@ -21,6 +21,73 @@ from agenttop.config import Config
 from agenttop.models import Session
 
 # ---------------------------------------------------------------------------
+# Model recommendation engine: maps project intent → optimal model
+# ---------------------------------------------------------------------------
+
+# Intent → model mapping with rationale
+# Priority: match model capability to task complexity, minimize cost waste
+_MODEL_RECOMMENDATIONS: dict[str, dict[str, str]] = {
+    "debugging": {
+        "model": "Sonnet 4.6",
+        "reason": "Best cost/performance for debugging — fast iteration, strong code understanding. Opus is overkill for most bug fixes.",
+    },
+    "greenfield": {
+        "model": "Opus 4.6",
+        "reason": "Deep reasoning for architecture decisions and complex new features. Worth the cost for getting the foundation right.",
+    },
+    "refactoring": {
+        "model": "Sonnet 4.6",
+        "reason": "Strong code understanding at lower cost. Refactoring is pattern-heavy — Sonnet handles it well without Opus pricing.",
+    },
+    "exploration": {
+        "model": "Haiku 4.5",
+        "reason": "Exploration is read-heavy with many short queries. Haiku is 3x cheaper and fast enough for codebase navigation.",
+    },
+    "code_review": {
+        "model": "Sonnet 4.6",
+        "reason": "Good balance of analytical depth and cost for code review. Catches most issues without Opus-level spend.",
+    },
+    "devops": {
+        "model": "Sonnet 4.6",
+        "reason": "CI/CD and infra work is template-heavy. Sonnet handles it well without premium pricing.",
+    },
+    "documentation": {
+        "model": "Haiku 4.5",
+        "reason": "Documentation is straightforward generation. Haiku is fast, cheap, and produces good prose.",
+    },
+}
+
+_DEFAULT_MODEL_REC = {
+    "model": "Sonnet 4.6",
+    "reason": "Best all-around model for general coding tasks. Switch to Opus for complex architecture, Haiku for simple queries.",
+}
+
+
+def _recommend_model(intent: str, project_cost: float, avg_messages: float) -> dict[str, str]:
+    """Recommend optimal model for a project based on intent and usage patterns."""
+    base = _MODEL_RECOMMENDATIONS.get(intent, _DEFAULT_MODEL_REC)
+    model = base["model"]
+    reason = base["reason"]
+
+    # Override: if project is very expensive (>$50) and intent isn't greenfield,
+    # suggest downgrading to save costs
+    if project_cost > 50 and intent != "greenfield" and "Opus" in model:
+        model = "Sonnet 4.6"
+        reason = f"Project cost is ${project_cost:.0f} — switch from Opus to Sonnet to cut costs ~5x while maintaining quality for {intent}."
+
+    # Override: if sessions are very short (<5 msgs avg), Haiku is sufficient
+    if avg_messages < 5 and intent not in ("greenfield",):
+        model = "Haiku 4.5"
+        reason = f"Short sessions ({avg_messages:.0f} avg messages) — Haiku is fast and cheap for quick queries."
+
+    # Override: very expensive + debugging = definitely not Opus
+    if project_cost > 100 and intent == "debugging":
+        reason = f"${project_cost:.0f} spent debugging — Sonnet handles debugging just as well at 5x lower cost. Consider TDD to reduce debug cycles entirely."
+
+    return {"model": model, "reason": reason}
+
+
+# ---------------------------------------------------------------------------
 # Knowledge base: sourced from official docs (March 2026) for each tool.
 # The LLM uses this to identify features the user isn't leveraging.
 # ---------------------------------------------------------------------------
@@ -319,7 +386,7 @@ Return ONLY valid JSON with this structure:
     {{"tool": "tool name", "feature": "specific feature name", "evidence": "what in their data suggests they're not using this", "benefit": "what they'd gain"}}
   ],
   "project_insights": [
-    {{"project": "name", "type": "greenfield/maintenance/debugging/refactoring/exploration", "insight": "specific observation from data", "recommendation": "actionable advice", "underutilized": "what tools/features are underused here"}}
+    {{"project": "name", "type": "greenfield/maintenance/debugging/refactoring/exploration", "insight": "specific observation from data", "recommendation": "actionable advice", "underutilized": "what tools/features are underused here", "recommended_model": {{"model": "model name (e.g. Sonnet 4.6, Opus 4.6, Haiku 4.5)", "reason": "why this model is optimal for this project's workload"}}}}
   ],
   "workflow": {{
     "current": "2-3 sentence assessment of current AI workflow",
@@ -1522,12 +1589,17 @@ class AIUsageOptimizer:
             else:
                 rec = "Usage looks healthy for this project"
                 underutilized = "None detected"
+
+            # Model recommendation based on project intent and cost
+            model_rec = _recommend_model(top_proj_intent, pd["cost"], proj_avg_msgs)
+
             project_insights.append({
                 "project": name,
                 "type": top_proj_intent,
                 "insight": insight,
                 "recommendation": rec,
                 "underutilized": underutilized,
+                "recommended_model": model_rec,
             })
 
         # --- Workflow assessment ---
