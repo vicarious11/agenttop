@@ -36,7 +36,16 @@ agenttop web
 
 That's it. Open `http://localhost:8420` and see your usage across all tools — no API keys, no config, no sign-up.
 
-The dashboard works immediately with your local data. The AI-powered optimizer is optional (see below).
+### Enable the AI optimizer (free, local)
+
+```bash
+brew install ollama              # install Ollama
+ollama pull qwen3:1.7b           # download model (~1GB)
+ollama serve                     # start (keep running)
+agenttop web                     # optimizer auto-detects Ollama
+```
+
+All analysis runs locally on your machine. No data leaves your computer.
 
 ## AI-Powered Optimizer
 
@@ -48,20 +57,18 @@ The optimizer analyzes your usage patterns and generates personalized recommenda
 - **Feature gaps** — identifies tool features you're not using (CLAUDE.md, custom slash commands, etc.)
 - **Developer profiling** — maps your workflow style and suggests improvements
 
-### Configure a provider
+### LLM providers
 
-The optimizer needs an LLM. Pick one:
-
-**Anthropic** (default — just set the env var):
+**Ollama** (default — free, local, private):
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+brew install ollama && ollama pull qwen3:1.7b && ollama serve
 agenttop web
 ```
 
-**Ollama** (free, local, no API key):
+**Anthropic** (cloud — higher quality analysis):
 ```bash
-brew install ollama && ollama pull llama3.2 && ollama serve
-agenttop web --provider ollama
+export ANTHROPIC_API_KEY=sk-ant-...
+agenttop web --provider anthropic --model claude-haiku-4-5-20251001
 ```
 
 **OpenAI:**
@@ -78,7 +85,7 @@ agenttop web --provider openrouter --model openrouter/google/gemini-2.0-flash-00
 
 Or configure via `~/.agenttop/config.toml` — run `agenttop init` to generate it.
 
-You can also set env vars: `AGENTTOP_LLM_PROVIDER`, `AGENTTOP_LLM_MODEL`, `AGENTTOP_LLM_BASE_URL`.
+Env var overrides: `AGENTTOP_LLM_PROVIDER`, `AGENTTOP_LLM_MODEL`, `AGENTTOP_LLM_BASE_URL`.
 
 ## Commands
 

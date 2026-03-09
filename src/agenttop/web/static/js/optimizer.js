@@ -2,22 +2,54 @@
 
 const Optimizer = {
   _expanded: false,
+  _fullscreen: false,
   _cached: null,
 
   init() {
     const toggle = document.getElementById('drawer-toggle');
     const drawer = document.getElementById('optimizer-drawer');
+    const fsBtn = document.getElementById('drawer-fullscreen');
     drawer.classList.add('collapsed');
 
-    toggle.addEventListener('click', () => {
+    toggle.addEventListener('click', (e) => {
+      // Don't toggle drawer when clicking fullscreen button
+      if (e.target.id === 'drawer-fullscreen') return;
       Optimizer._expanded = !Optimizer._expanded;
       drawer.classList.toggle('collapsed', !Optimizer._expanded);
+      if (!Optimizer._expanded) {
+        Optimizer._fullscreen = false;
+        drawer.classList.remove('fullscreen');
+      }
       if (Optimizer._expanded) {
         if (Optimizer._cached) {
           Optimizer._renderResults(Optimizer._cached);
         } else {
           Optimizer._renderInitial();
         }
+      }
+    });
+
+    fsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!Optimizer._expanded) {
+        Optimizer._expanded = true;
+        drawer.classList.remove('collapsed');
+        if (Optimizer._cached) {
+          Optimizer._renderResults(Optimizer._cached);
+        } else {
+          Optimizer._renderInitial();
+        }
+      }
+      Optimizer._fullscreen = !Optimizer._fullscreen;
+      drawer.classList.toggle('fullscreen', Optimizer._fullscreen);
+    });
+
+    // Escape exits fullscreen first, then closes drawer
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && Optimizer._fullscreen) {
+        Optimizer._fullscreen = false;
+        drawer.classList.remove('fullscreen');
+        e.stopPropagation();
       }
     });
   },

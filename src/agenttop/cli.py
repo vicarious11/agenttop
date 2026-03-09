@@ -45,27 +45,28 @@ def init() -> None:
     click.echo(f"Config written to {path}")
     click.echo()
 
-    # Detect available API keys
+    # Check if Ollama is running (default provider)
+    ollama_ok = _check_ollama()
+    if ollama_ok:
+        click.echo(click.style("  [ready] Ollama detected — optimizer will use local LLM", fg="green"))
+    else:
+        click.echo("  Ollama not detected. To enable the AI-powered optimizer:")
+        click.echo()
+        click.echo("    brew install ollama          # install")
+        click.echo("    ollama pull qwen3:1.7b       # download model (~1GB)")
+        click.echo("    ollama serve                 # start (keep running)")
+        click.echo()
+        click.echo("  Or use a cloud provider instead (edit config.toml):")
+
+    # Detect available cloud API keys
     _KEY_CHECKS = [
         ("Anthropic", "ANTHROPIC_API_KEY"),
         ("OpenAI", "OPENAI_API_KEY"),
         ("OpenRouter", "OPENROUTER_API_KEY"),
     ]
-    found_any = False
     for name, env_var in _KEY_CHECKS:
         if os.environ.get(env_var):
             click.echo(click.style(f"  [found] {name} API key detected ({env_var})", fg="green"))
-            found_any = True
-
-    if not found_any:
-        click.echo("  No API keys detected. To enable the AI-powered optimizer:")
-        click.echo()
-        click.echo("    # Option A: Anthropic (cloud)")
-        click.echo("    export ANTHROPIC_API_KEY=sk-ant-...")
-        click.echo()
-        click.echo("    # Option B: Ollama (free, local)")
-        click.echo("    brew install ollama && ollama pull llama3.2 && ollama serve")
-        click.echo("    # Then set provider=ollama in config.toml")
 
     click.echo()
     click.echo("Data monitoring works without an LLM — just launch: agenttop web")
@@ -235,6 +236,18 @@ def proxy(port: int) -> None:
         asyncio.run(run_proxy(config, collector))
     except KeyboardInterrupt:
         click.echo("\nProxy stopped.")
+
+
+def _check_ollama() -> bool:
+    """Quick check if Ollama is running locally."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request("http://localhost:11434", method="GET")
+        with urllib.request.urlopen(req, timeout=2):
+            return True
+    except Exception:
+        return False
 
 
 def _apply_cli_overrides(provider: str | None, model: str | None) -> None:

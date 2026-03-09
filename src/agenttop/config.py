@@ -26,12 +26,12 @@ KIRO_DIR = Path.home() / "Library" / "Application Support" / "Kiro"
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
-    provider: str = "anthropic"
-    model: str = "claude-haiku-4-5-20251001"
+    provider: str = "ollama"
+    model: str = "ollama/qwen3:1.7b"
     api_key: str = ""
     api_key_env: str = "ANTHROPIC_API_KEY"
-    base_url: str = ""
-    base_url_env: str = "ANTHROPIC_BASE_URL"
+    base_url: str = "http://localhost:11434"
+    base_url_env: str = ""
     max_budget_per_day: float = 1.0  # USD
 
 
@@ -101,22 +101,20 @@ DEFAULT_CONFIG_TOML = """\
 # Data monitoring (dashboard, sessions, costs) works without any LLM
 # configuration. The LLM is only used for the AI-powered optimizer.
 
-# ── Anthropic (default) ──
-# Reads ANTHROPIC_API_KEY from environment automatically.
+# ── Ollama (default — free, local, private) ──
+# Install: brew install ollama && ollama pull qwen3:1.7b && ollama serve
+# No API key needed. All analysis stays on your machine.
 [llm]
-provider = "anthropic"
-model = "claude-haiku-4-5-20251001"
-api_key = ""
-api_key_env = "ANTHROPIC_API_KEY"
-base_url = ""
-base_url_env = "ANTHROPIC_BASE_URL"
+provider = "ollama"
+model = "ollama/qwen3:1.7b"
+base_url = "http://localhost:11434"
 max_budget_per_day = 1.0
 
-# ── Ollama (free, local — uncomment to use) ──
+# ── Anthropic (uncomment for cloud-powered analysis) ──
 # [llm]
-# provider = "ollama"
-# model = "ollama/llama3.2"
-# base_url = "http://localhost:11434"
+# provider = "anthropic"
+# model = "claude-haiku-4-5-20251001"
+# api_key_env = "ANTHROPIC_API_KEY"
 # max_budget_per_day = 1.0
 
 # ── OpenAI (uncomment to use) ──

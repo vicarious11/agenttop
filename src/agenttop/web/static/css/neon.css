@@ -1068,6 +1068,31 @@ html, body {
 }
 .drawer.collapsed .drawer-chevron { transform: rotate(180deg); }
 
+.drawer-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.drawer-fullscreen-btn {
+  font-size: 14px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.2s;
+  line-height: 1;
+}
+.drawer-fullscreen-btn:hover { color: var(--neon-cyan); }
+
+/* Fullscreen mode */
+.drawer.fullscreen {
+  max-height: 100vh;
+  top: 0;
+  border-radius: 0;
+  z-index: 300;
+}
+.drawer.fullscreen .drawer-body {
+  max-height: calc(100vh - 42px);
+}
+
 .drawer-body {
   padding: 20px 24px;
   overflow-y: auto;
