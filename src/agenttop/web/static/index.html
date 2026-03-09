@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agenttop — AI Usage Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <link rel="stylesheet" href="/static/css/neon.css">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+</head>
+<body>
+  <!-- Animated background layers -->
+  <div class="bg-grid"></div>
+  <div class="bg-scan"></div>
+  <div class="bg-vignette"></div>
+
+  <!-- Top Bar -->
+  <header id="topbar">
+    <div class="logo">
+      <div class="logo-glyph">
+        <svg width="28" height="28" viewBox="0 0 28 28">
+          <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="none" stroke="#ff6b00" stroke-width="1.5" class="logo-hex-spin"/>
+          <circle cx="14" cy="14" r="4" fill="#ff6b00" class="logo-core"/>
+          <line x1="14" y1="2" x2="14" y2="10" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="26" y1="8" x2="18" y2="12" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="26" y1="20" x2="18" y2="16" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="14" y1="26" x2="14" y2="18" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="2" y1="20" x2="10" y2="16" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="2" y1="8" x2="10" y2="12" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+        </svg>
+      </div>
+      <span class="logo-text">agent<span class="accent">top</span></span>
+      <span class="logo-tag">v0.1</span>
+    </div>
+
+    <div id="stats-ribbon" class="stats-ribbon"></div>
+
+    <div class="topbar-right">
+      <div class="live-indicator">
+        <span class="live-dot"></span>
+        <span class="live-text">LIVE</span>
+      </div>
+      <select id="time-range" class="neon-select">
+        <option value="0" selected>All Time</option>
+        <option value="1">Today</option>
+        <option value="7">7 Days</option>
+        <option value="30">30 Days</option>
+      </select>
+    </div>
+  </header>
+
+  <!-- Main Layout: Graph + Data Panels -->
+  <main id="main">
+    <!-- Left: Knowledge Graph -->
+    <div id="graph-container" class="glass-panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon">◈</span>
+          Knowledge Graph
+        </div>
+        <div class="graph-legend" id="graph-legend"></div>
+      </div>
+      <div id="graph-area">
+        <svg id="graph-svg"></svg>
+      </div>
+    </div>
+
+    <!-- Right: Stacked Data Panels -->
+    <div id="data-column">
+      <!-- Model Usage -->
+      <div id="model-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="panel-icon">⬡</span>
+            Model Usage
+          </div>
+          <div class="model-legend">
+            <span class="ml-dot ml-input"></span>Input
+            <span class="ml-dot ml-output"></span>Output
+            <span class="ml-dot ml-cache"></span>Cache
+          </div>
+        </div>
+        <div id="model-content" class="panel-body"></div>
+      </div>
+
+      <!-- Hourly Activity -->
+      <div id="hourly-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="panel-icon">◰</span>
+            Hourly Activity
+          </div>
+          <div id="hourly-total" class="panel-badge"></div>
+        </div>
+        <div id="hourly-content" class="panel-body"></div>
+      </div>
+
+      <!-- Recent Sessions -->
+      <div id="sessions-panel" class="glass-panel mini-panel sessions-stretch">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="panel-icon">▣</span>
+            Recent Sessions
+          </div>
+          <div id="sessions-count" class="panel-badge"></div>
+        </div>
+        <div id="sessions-content" class="panel-body"></div>
+      </div>
+
+      <!-- Cost Breakdown -->
+      <div id="cost-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="panel-icon">◇</span>
+            Cost Breakdown
+          </div>
+          <div id="cost-total-badge" class="panel-badge cost-badge"></div>
+        </div>
+        <div id="cost-content" class="panel-body"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Node Detail Overlay -->
+  <aside id="node-detail" class="glass-panel detail-overlay hidden">
+    <div class="panel-header">
+      <div class="panel-title">
+        <span class="panel-icon">▣</span>
+        Node Detail
+      </div>
+      <button id="detail-close" class="icon-btn">&times;</button>
+    </div>
+    <div id="detail-content"></div>
+  </aside>
+
+  <!-- Bottom: Tool breakdown bar -->
+  <div id="tool-bar" class="tool-bar"></div>
+
+  <!-- Bottom Optimizer Drawer -->
+  <div id="optimizer-drawer" class="glass-panel drawer collapsed">
+    <div class="drawer-handle" id="drawer-toggle">
+      <div class="drawer-handle-left">
+        <span class="drawer-icon">⬡</span>
+        <span class="drawer-title">AI Usage Optimizer</span>
+      </div>
+      <span class="drawer-chevron" id="drawer-chevron">▲</span>
+    </div>
+    <div id="optimizer-content" class="drawer-body"></div>
+  </div>
+
+  <!-- Tooltip -->
+  <div id="tooltip" class="tooltip"></div>
+
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/graph.js"></script>
+  <script src="/static/js/stats.js"></script>
+  <script src="/static/js/panels.js"></script>
+  <script src="/static/js/optimizer.js"></script>
+</body>
+</html>
