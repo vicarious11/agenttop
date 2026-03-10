@@ -50,7 +50,9 @@ def init() -> None:
     _cfg = _lc()
     ollama_ok = _check_ollama(_cfg.llm.base_url)
     if ollama_ok:
-        click.echo(click.style("  [ready] Ollama detected — optimizer will use local LLM", fg="green"))
+        click.echo(click.style(
+            "  [ready] Ollama detected — optimizer will use local LLM", fg="green",
+        ))
     else:
         click.echo("  Ollama not detected. To enable the AI-powered optimizer:")
         click.echo()
@@ -61,12 +63,12 @@ def init() -> None:
         click.echo("  Or use a cloud provider instead (edit config.toml):")
 
     # Detect available cloud API keys
-    _KEY_CHECKS = [
+    key_checks = [
         ("Anthropic", "ANTHROPIC_API_KEY"),
         ("OpenAI", "OPENAI_API_KEY"),
         ("OpenRouter", "OPENROUTER_API_KEY"),
     ]
-    for name, env_var in _KEY_CHECKS:
+    for name, env_var in key_checks:
         if os.environ.get(env_var):
             click.echo(click.style(f"  [found] {name} API key detected ({env_var})", fg="green"))
 
@@ -192,7 +194,7 @@ def web(port: int, no_browser: bool, provider: str | None, model: str | None) ->
     """Launch the web dashboard with knowledge graph."""
     import uvicorn
 
-    from agenttop.config import CONFIG_FILE, load_config
+    from agenttop.config import load_config
 
     _apply_cli_overrides(provider, model)
 
