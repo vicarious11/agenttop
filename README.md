@@ -1,204 +1,145 @@
 # agenttop
 
-[![PyPI](https://img.shields.io/pypi/v/agenttop)](https://pypi.org/project/agenttop/)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](LICENSE)
+**You're mass-spending on AI coding tools and you have no idea where the money goes.**
 
-**htop for AI coding agents** — zero-config monitoring + AI-powered optimizer for Claude Code, Cursor, Kiro, Codex, and Copilot.
+agenttop reads your local usage data from Claude Code, Cursor, Kiro, Codex, and Copilot — then an LLM analyzes your actual workflow and tells you exactly what you're doing wrong.
 
-<!-- TODO: Add screenshot of web dashboard here -->
-<!-- ![agenttop web dashboard](assets/screenshots/dashboard.png) -->
+![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
-## Why agenttop?
+### Install
 
-Every AI coding tool tracks its own usage in its own format. agenttop reads them all, shows you the full picture, and tells you what to fix.
-
-| Feature | **agenttop** | ccusage | Tokscale | Agent Stats | Toktrack |
-|---------|:-----------:|:-------:|:--------:|:-----------:|:--------:|
-| Multi-tool support | **5 tools** | 2 | 10 | 3 | 4 |
-| AI-powered optimizer | **Yes** | No | No | No | No |
-| Anti-pattern detection | **Yes** | No | No | No | No |
-| Cost forensics | **Yes** | No | No | Basic | No |
-| Knowledge graph | **Yes** | No | No | No | No |
-| Prompt intelligence | **Yes** | No | No | No | No |
-| TUI + Web dashboard | **Both** | CLI | CLI+Web | Web | CLI |
-| Zero-config | **Yes** | Yes | Yes | No | Yes |
-| Privacy-first (local) | **Yes** | Yes | Yes | No | Yes |
-
-**No other tool has an LLM-powered optimizer.** agenttop doesn't just show you numbers — it grades your workflow, detects anti-patterns, finds features you're missing, and gives you specific recommendations backed by your actual usage data.
-
-## Quick Start
-
-```bash
+```
 pip install agenttop
 agenttop web
 ```
 
-That's it. Open `http://localhost:8420` and see your usage across all tools — no API keys, no config, no sign-up.
+That's it. No sign-up, no API keys, no config. Opens at `localhost:8420`.
 
-### Enable the AI optimizer (free, local)
+It reads `~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.config/github-copilot/`, and Kiro data dirs — whatever you have installed.
 
+---
+
+### The optimizer finds problems you didn't know you had
+
+This isn't a dashboard that shows you a number and leaves. The optimizer runs your usage data through an LLM and comes back with:
+
+**Anti-patterns you're repeating** — correction spirals where you keep fixing errors instead of starting fresh. Marathon sessions where you hit 100+ messages and the AI starts forgetting your instructions. Exploration loops where you're manually reading files instead of using sub-agents.
+
+**Cost forensics** — not "you spent $X this month" but *which project is burning tokens, which model is overkill for what you're doing, and how much you'd save by switching*.
+
+**Features you're paying for but not using** — CLAUDE.md, custom slash commands, prompt caching, sub-agents. The tools you use have capabilities you've never touched. The optimizer knows which ones would actually help based on your patterns.
+
+**Developer profiling** — maps your workflow style (debug warrior, explorer, builder) and gives you targeted advice instead of generic tips.
+
+![agenttop recommendations — anti-patterns and cost analysis](assets/screenshots/recommendations.png)
+
+---
+
+### Knowledge graph
+
+Every tool, model, project, and feature — connected. See which model eats which project's budget at a glance.
+
+![agenttop knowledge graph — force-directed visualization](assets/screenshots/knowledge-graph.png)
+
+---
+
+### Optimizer setup
+
+The dashboard works without any LLM. The optimizer needs one.
+
+**Ollama (default — free, runs on your machine):**
 ```bash
-brew install ollama              # install Ollama
-ollama pull qwen3:1.7b           # download model (~1GB)
-ollama serve                     # start (keep running)
-agenttop web                     # optimizer auto-detects Ollama
+brew install ollama
+ollama pull qwen3:1.7b
+ollama serve
 ```
 
-All analysis runs locally on your machine. No data leaves your computer.
+Everything stays local. Nothing leaves your computer.
 
-## AI-Powered Optimizer
-
-The optimizer analyzes your usage patterns and generates personalized recommendations. It detects:
-
-- **Anti-patterns** — repeated failed tool calls, overly long sessions, exploration loops
-- **Cost forensics** — which projects and models burn the most tokens and why
-- **Prompt intelligence** — classifies your prompts (debugging, greenfield, refactoring) and spots inefficiencies
-- **Feature gaps** — identifies tool features you're not using (CLAUDE.md, custom slash commands, etc.)
-- **Developer profiling** — maps your workflow style and suggests improvements
-
-### LLM providers
-
-**Ollama** (default — free, local, private):
+**Or use a cloud provider:**
 ```bash
-brew install ollama && ollama pull qwen3:1.7b && ollama serve
-agenttop web
-```
-
-**Anthropic** (cloud — higher quality analysis):
-```bash
+# Anthropic
 export ANTHROPIC_API_KEY=sk-ant-...
 agenttop web --provider anthropic --model claude-haiku-4-5-20251001
-```
 
-**OpenAI:**
-```bash
+# OpenAI
 export OPENAI_API_KEY=sk-...
 agenttop web --provider openai --model gpt-4o-mini
-```
 
-**OpenRouter:**
-```bash
+# OpenRouter
 export OPENROUTER_API_KEY=sk-or-...
 agenttop web --provider openrouter --model openrouter/google/gemini-2.0-flash-001
 ```
 
-Or configure via `~/.agenttop/config.toml` — run `agenttop init` to generate it.
+Run `agenttop init` to generate a config file at `~/.agenttop/config.toml`.
 
-Env var overrides: `AGENTTOP_LLM_PROVIDER`, `AGENTTOP_LLM_MODEL`, `AGENTTOP_LLM_BASE_URL`.
+---
 
-## Commands
+### Supported tools
 
-| Command | Description |
-|---------|-------------|
-| `agenttop` | Launch interactive TUI dashboard |
-| `agenttop web` | Launch web dashboard at `localhost:8420` |
-| `agenttop web --provider ollama` | Web dashboard with Ollama optimizer |
-| `agenttop web --port 9000` | Web dashboard on custom port |
-| `agenttop stats` | Quick stats summary (non-interactive) |
-| `agenttop analyze` | Run workflow analysis |
-| `agenttop proxy` | Start local API proxy on port 9120 |
-| `agenttop init` | Create config at `~/.agenttop/config.toml` |
-
-## Supported Tools
-
-| Tool | Data Source | What's Tracked |
-|------|-----------|----------------|
-| Claude Code | `~/.claude/` | Messages, sessions, tool calls, costs, project memory |
-| Cursor | `~/.cursor/ai-tracking/` | AI code generation, conversations, AI vs human ratio |
+| Tool | Data source | What's tracked |
+|------|------------|----------------|
+| Claude Code | `~/.claude/` | Sessions, tokens, tool calls, costs, models, projects |
+| Cursor | `~/.cursor/ai-tracking/` | AI code gen, conversations, AI vs human ratio |
 | Kiro | `~/Library/Application Support/Kiro/` | Agent activity |
 | Codex | `~/.codex/` | Sessions, token usage |
 | Copilot | `~/.config/github-copilot/` | Completions, suggestions |
 | Any tool | Local proxy | Token counts, latency, costs |
 
-## How It Works
+### Commands
 
 ```
-  ~/.claude/  ~/.cursor/  ~/...Kiro/  ~/.codex/  ~/.config/github-copilot/
-       │           │          │          │              │
-       └─────────┐ │ ┌────────┘          │    ┌────────┘
-                 ▼ ▼ ▼                   ▼    ▼
-              ┌─────────────────────────────────┐
-              │         Collectors               │
-              │  (claude, cursor, kiro, codex,   │
-              │   copilot, proxy)                │
-              └──────────────┬──────────────────┘
-                             ▼
-              ┌──────────────────────────────────┐
-              │     Models (Event, Session)       │
-              └──────────────┬──────────────────┘
-                             ▼
-                ┌────────────┴────────────┐
-                ▼                         ▼
-   ┌────────────────────┐   ┌─────────────────────┐
-   │   Web Dashboard    │   │    TUI Dashboard     │
-   │  (FastAPI + D3)    │   │    (Textual)         │
-   └────────┬───────────┘   └─────────────────────┘
-            ▼
-   ┌────────────────────┐
-   │    Optimizer        │
-   │  (LLM + fallback)  │
-   └────────────────────┘
+agenttop              # TUI dashboard
+agenttop web          # web dashboard (localhost:8420)
+agenttop stats        # quick summary
+agenttop analyze      # workflow analysis
+agenttop init         # generate config
+agenttop proxy        # API proxy for unsupported tools
 ```
 
-## Why not just check my billing page?
+Flags: `--days 7` (time range), `--provider ollama` (LLM), `--model name` (model), `--port 9000` (port).
 
-Your billing page is a credit card statement. agenttop is a financial advisor.
+### How it works
 
-The billing page tells you what you spent. agenttop tells you *why* — which projects drain tokens, which prompts waste cycles, which features would cut your costs in half, and what anti-patterns are silently inflating your usage.
+```
+~/.claude/  ~/.cursor/  ~/...Kiro/  ~/.codex/  ~/.config/github-copilot/
+     |           |          |          |              |
+     v           v          v          v              v
+                      Collectors
+                          |
+                    Event / Session
+                          |
+                +---------+---------+
+                |                   |
+          Web Dashboard         TUI Dashboard
+          (D3 + FastAPI)        (Textual)
+                |
+            Optimizer
+            (LLM-powered)
+```
 
-## Using the Proxy
+Collectors read local data dirs. No network calls, no telemetry, no cloud. The optimizer is the only component that calls an LLM (local Ollama by default).
 
-For tools that don't store data locally, use the built-in proxy:
+### Proxy
+
+For tools that don't store data locally:
 
 ```bash
-agenttop proxy --port 9120
-```
-
-Then point your tool at the proxy:
-
-```bash
+agenttop proxy
 export ANTHROPIC_BASE_URL=http://localhost:9120/anthropic
 export OPENAI_BASE_URL=http://localhost:9120/openai
 ```
 
-## Keyboard Shortcuts (TUI)
-
-| Key | Action |
-|-----|--------|
-| `d` | Dashboard view |
-| `s` | Sessions view |
-| `a` | Analysis view |
-| `r` | Recommendations view |
-| `q` | Quit |
-| `?` | Help |
-
-## Development
+### Development
 
 ```bash
 git clone https://github.com/vicarious11/agenttop
 cd agenttop
 pip install -e ".[dev]"
 pytest
-
-# Web dashboard
 agenttop web
-
-# TUI
-agenttop
 ```
 
-## Adding a New Collector
-
-1. Create `src/agenttop/collectors/your_tool.py`
-2. Subclass `BaseCollector` and implement:
-   - `tool_name` — return a `ToolName` enum value
-   - `is_available()` — check if the tool's data exists
-   - `collect_events()` — parse events from local data
-   - `collect_sessions()` — aggregate into sessions
-   - `get_stats()` — return dashboard stats
-3. Register in `tui/app.py` and `web/server.py`
-
-## License
+### License
 
 Apache 2.0

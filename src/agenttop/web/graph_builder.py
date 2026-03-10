@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Any
 
 from agenttop.collectors.base import BaseCollector
@@ -386,6 +387,12 @@ class GraphBuilder:
         project_tokens: dict[str, int] = defaultdict(int)
         project_tools: dict[str, set[str]] = defaultdict(set)
 
+        cutoff = (
+            datetime.now() - timedelta(days=self._days)
+            if self._days > 0
+            else datetime(2000, 1, 1)
+        )
+
         for _, collector in self._collectors:
             if not collector.is_available():
                 continue
@@ -393,16 +400,18 @@ class GraphBuilder:
             if tool_id not in node_ids:
                 continue
             for session in collector.collect_sessions():
+                if session.start_time < cutoff:
+                    continue
                 if session.project:
                     proj = session.project.split("/")[-1] or session.project
                     project_tokens[proj] += session.total_tokens
                     project_tools[proj].add(tool_id)
 
-        top_projects = sorted(
+        all_projects = sorted(
             project_tokens.items(), key=lambda x: x[1], reverse=True
-        )[:10]
+        )
 
-        for proj_name, tokens in top_projects:
+        for proj_name, tokens in all_projects:
             if tokens == 0:
                 continue
             pid = f"proj-{proj_name}"

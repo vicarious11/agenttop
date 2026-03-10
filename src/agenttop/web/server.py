@@ -36,6 +36,8 @@ app.add_middleware(
 _config: Config | None = None
 _collectors: list[tuple[str, BaseCollector]] = []
 _claude: ClaudeCodeCollector | None = None
+_cached_optimize: dict[str, Any] | None = None
+_optimize_running = False
 
 
 def _init() -> None:
@@ -120,12 +122,12 @@ class OptimizeRequest(BaseModel):
     days: int = 0
 
 
-@app.post("/api/optimize")
-def api_optimize(req: OptimizeRequest) -> JSONResponse:
+def _run_optimize(days: int = 0) -> dict[str, Any]:
+    """Run optimizer analysis (blocking). Used by both startup and endpoint."""
     _init()
     from agenttop.web.optimizer import AIUsageOptimizer
 
-    stats = _get_all_stats(req.days)
+    stats = _get_all_stats(days)
     sessions = []
     for _, collector in _collectors:
         if collector.is_available():
@@ -135,7 +137,44 @@ def api_optimize(req: OptimizeRequest) -> JSONResponse:
         model_usage = _claude.get_model_usage()
 
     optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
-    result = optimizer.analyze(stats, sessions, model_usage)
+    return optimizer.analyze(stats, sessions, model_usage)
+
+
+@app.on_event("startup")
+async def _precompute_optimize() -> None:
+    """Run LLM analysis at boot so the optimizer is instant."""
+    global _cached_optimize, _optimize_running
+
+    async def _bg() -> None:
+        global _cached_optimize, _optimize_running
+        _optimize_running = True
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, _run_optimize,
+            )
+            _cached_optimize = result
+        except Exception:
+            pass
+        finally:
+            _optimize_running = False
+
+    asyncio.create_task(_bg())
+
+
+@app.post("/api/optimize")
+async def api_optimize(req: OptimizeRequest) -> JSONResponse:
+    global _cached_optimize
+
+    # Return cached result for default (days=0) if available
+    if req.days == 0 and _cached_optimize is not None:
+        return JSONResponse(_cached_optimize)
+
+    # Run fresh analysis
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, _run_optimize, req.days,
+    )
+    if req.days == 0:
+        _cached_optimize = result
     return JSONResponse(result)
 
 

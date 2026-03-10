@@ -11,6 +11,9 @@ const Optimizer = {
     const fsBtn = document.getElementById('drawer-fullscreen');
     drawer.classList.add('collapsed');
 
+    // Pre-fetch analysis (server precomputes at boot, so this is usually instant)
+    Optimizer._prefetch();
+
     toggle.addEventListener('click', (e) => {
       // Don't toggle drawer when clicking fullscreen button
       if (e.target.id === 'drawer-fullscreen') return;
@@ -54,6 +57,21 @@ const Optimizer = {
     });
   },
 
+  async _prefetch() {
+    try {
+      const res = await fetch('/api/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 0 }),
+      });
+      const data = await res.json();
+      if (data.source !== 'none' && !data.error) {
+        Optimizer._cached = data;
+        try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) {}
+      }
+    } catch(e) { /* silent — user can still click Analyze */ }
+  },
+
   _renderInitial() {
     const content = document.getElementById('optimizer-content');
     content.innerHTML = `
@@ -83,6 +101,17 @@ const Optimizer = {
         body: JSON.stringify({ days: App.days }),
       });
       const data = await res.json();
+      if (data.source === 'none' || data.error) {
+        content.innerHTML = `
+          <div style="text-align:center;padding:40px 24px;">
+            <div style="font-size:48px;margin-bottom:16px;">🔌</div>
+            <h3 style="color:var(--neon-yellow);margin-bottom:12px;">${data.error || 'LLM not available'}</h3>
+            ${data.setup_hint ? `<pre style="text-align:left;background:var(--bg-card);padding:16px;border-radius:8px;margin:16px auto;max-width:500px;color:var(--text-secondary);white-space:pre-wrap;">${data.setup_hint}</pre>` : ''}
+            <button class="neon-btn" onclick="Optimizer.analyze()" style="margin-top:16px;">Retry</button>
+          </div>
+        `;
+        return;
+      }
       Optimizer._cached = data;
       try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) {}
       Optimizer._renderResults(data);
@@ -107,11 +136,7 @@ const Optimizer = {
     let html = '<div class="animate-in">';
 
     // Source badge
-    const sourceLabel = {
-      'llm': 'AI-Powered Analysis',
-      'data-driven': 'Data-Driven Analysis (configure LLM for deeper insights)',
-      'heuristic': 'Basic Analysis',
-    }[data.source] || data.source;
+    const sourceLabel = 'AI-Powered Analysis';
 
     // Score circle
     const score = data.score || 0;
@@ -386,13 +411,6 @@ const Optimizer = {
         html += '</div>';
       }
       html += '</div>';
-    }
-
-    // LLM error notice
-    if (data.llm_error) {
-      html += `<div style="padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgba(255,238,0,0.08);border:1px solid rgba(255,238,0,0.2);font-size:12px;color:var(--neon-yellow);">
-        LLM unavailable — showing data-driven analysis. ${data.llm_error.length < 200 ? data.llm_error : ''}
-      </div>`;
     }
 
     // Grade cards
