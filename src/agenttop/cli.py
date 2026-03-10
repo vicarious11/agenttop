@@ -190,12 +190,14 @@ def web(port: int, no_browser: bool, provider: str | None, model: str | None) ->
     """Launch the web dashboard with knowledge graph."""
     import uvicorn
 
-    from agenttop.config import CONFIG_FILE
+    from agenttop.config import CONFIG_FILE, load_config
 
     _apply_cli_overrides(provider, model)
 
-    if not CONFIG_FILE.exists():
-        click.echo("Tip: Run `agenttop init` to enable AI-powered optimizer")
+    # Auto-setup Ollama if it's the configured provider
+    config = load_config()
+    if config.llm.provider == "ollama":
+        _ensure_ollama(config.llm.model.replace("ollama/", ""))
 
     from agenttop.web.server import app
 
@@ -248,6 +250,65 @@ def _check_ollama() -> bool:
             return True
     except Exception:
         return False
+
+
+def _ensure_ollama(model: str = "qwen3:1.7b") -> None:
+    """Auto-setup Ollama: start server if installed, pull model if missing."""
+    import shutil
+    import subprocess
+    import time
+    import urllib.request
+
+    ollama_bin = shutil.which("ollama")
+    if not ollama_bin:
+        click.echo("  Ollama not installed. To enable the AI optimizer:")
+        click.echo("    brew install ollama")
+        click.echo("  Or use --provider anthropic/openai instead.")
+        return
+
+    # Start ollama serve if not running
+    if not _check_ollama():
+        click.echo("  Starting Ollama...")
+        subprocess.Popen(
+            [ollama_bin, "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # Wait up to 5s for it to come up
+        for _ in range(10):
+            time.sleep(0.5)
+            if _check_ollama():
+                break
+
+    if not _check_ollama():
+        click.echo("  Could not start Ollama. Run `ollama serve` manually.")
+        return
+
+    # Check if model is available
+    try:
+        req = urllib.request.Request(
+            f"http://localhost:11434/api/show",
+            data=f'{{"name":"{model}"}}'.encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5):
+            click.echo(click.style(f"  Ollama ready ({model})", fg="green"))
+            return
+    except Exception:
+        pass
+
+    # Model not found — pull it
+    click.echo(f"  Pulling {model} (one-time download)...")
+    try:
+        subprocess.run(
+            [ollama_bin, "pull", model],
+            check=True,
+            timeout=300,
+        )
+        click.echo(click.style(f"  Ollama ready ({model})", fg="green"))
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        click.echo(f"  Failed to pull {model}. Run `ollama pull {model}` manually.")
 
 
 def _apply_cli_overrides(provider: str | None, model: str | None) -> None:

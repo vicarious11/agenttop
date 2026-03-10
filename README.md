@@ -50,11 +50,10 @@ The dashboard works without any LLM. The optimizer needs one.
 **Ollama (default — free, runs on your machine):**
 ```bash
 brew install ollama
-ollama pull qwen3:1.7b
-ollama serve
+agenttop web              # auto-starts Ollama, pulls model, done
 ```
 
-Everything stays local. Nothing leaves your computer.
+That's it. `agenttop web` auto-detects Ollama, starts the server if it's not running, and pulls the model on first launch. Everything stays local — nothing leaves your computer.
 
 **Or use a cloud provider:**
 ```bash
