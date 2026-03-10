@@ -165,15 +165,15 @@ async def _precompute_optimize() -> None:
 async def api_optimize(req: OptimizeRequest) -> JSONResponse:
     global _cached_optimize
 
-    # Return cached result for default (days=0) if available
-    if req.days == 0 and _cached_optimize is not None:
+    # Return cached result for default (days=0) if available and not an error
+    if req.days == 0 and _cached_optimize is not None and "error" not in _cached_optimize:
         return JSONResponse(_cached_optimize)
 
-    # Run fresh analysis
+    # Run fresh analysis (retries if previous result was an error)
     result = await asyncio.get_event_loop().run_in_executor(
         None, _run_optimize, req.days,
     )
-    if req.days == 0:
+    if req.days == 0 and "error" not in result:
         _cached_optimize = result
     return JSONResponse(result)
 
