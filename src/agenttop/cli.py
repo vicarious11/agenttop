@@ -46,7 +46,9 @@ def init() -> None:
     click.echo()
 
     # Check if Ollama is running (default provider)
-    ollama_ok = _check_ollama()
+    from agenttop.config import load_config as _lc
+    _cfg = _lc()
+    ollama_ok = _check_ollama(_cfg.llm.base_url)
     if ollama_ok:
         click.echo(click.style("  [ready] Ollama detected — optimizer will use local LLM", fg="green"))
     else:
@@ -197,7 +199,10 @@ def web(port: int, no_browser: bool, provider: str | None, model: str | None) ->
     # Auto-setup Ollama if it's the configured provider
     config = load_config()
     if config.llm.provider == "ollama":
-        _ensure_ollama(config.llm.model.replace("ollama/", ""))
+        _ensure_ollama(
+            model=config.llm.model.replace("ollama/", ""),
+            base_url=config.llm.base_url,
+        )
 
     from agenttop.web.server import app
 
@@ -240,19 +245,19 @@ def proxy(port: int) -> None:
         click.echo("\nProxy stopped.")
 
 
-def _check_ollama() -> bool:
-    """Quick check if Ollama is running locally."""
+def _check_ollama(base_url: str = "http://localhost:11434") -> bool:
+    """Quick check if Ollama is running."""
     import urllib.request
 
     try:
-        req = urllib.request.Request("http://localhost:11434", method="GET")
+        req = urllib.request.Request(base_url, method="GET")
         with urllib.request.urlopen(req, timeout=2):
             return True
     except Exception:
         return False
 
 
-def _ensure_ollama(model: str = "qwen3:1.7b") -> None:
+def _ensure_ollama(model: str = "qwen3:1.7b", base_url: str = "http://localhost:11434") -> None:
     """Auto-setup Ollama: start server if installed, pull model if missing."""
     import shutil
     import subprocess
@@ -267,27 +272,27 @@ def _ensure_ollama(model: str = "qwen3:1.7b") -> None:
         return
 
     # Start ollama serve if not running
-    if not _check_ollama():
+    if not _check_ollama(base_url):
         click.echo("  Starting Ollama...")
         subprocess.Popen(
             [ollama_bin, "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        # Wait up to 5s for it to come up
         for _ in range(10):
             time.sleep(0.5)
-            if _check_ollama():
+            if _check_ollama(base_url):
                 break
 
-    if not _check_ollama():
+    if not _check_ollama(base_url):
         click.echo("  Could not start Ollama. Run `ollama serve` manually.")
         return
 
     # Check if model is available
     try:
+        show_url = base_url.rstrip("/") + "/api/show"
         req = urllib.request.Request(
-            f"http://localhost:11434/api/show",
+            show_url,
             data=f'{{"name":"{model}"}}'.encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
