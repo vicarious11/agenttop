@@ -548,7 +548,6 @@ def _build_cost_forensics(
         total_tokens = (
             usage.get("inputTokens", 0)
             + usage.get("outputTokens", 0)
-            + usage.get("cacheReadInputTokens", 0)
         )
         cost_by_model.append({
             "model": model_id,
