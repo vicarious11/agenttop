@@ -9,7 +9,7 @@
 ```
 Collectors → Models → Database → Web Server → Dashboard (SPA)
                                       ↓
-                              Optimizer (LLM + fallback)
+                              Optimizer (Python metrics + LLM)
 ```
 
 ### Key Directories
@@ -25,7 +25,7 @@ Collectors → Models → Database → Web Server → Dashboard (SPA)
 1. **Collectors** read tool-specific data dirs (`~/.claude/`, `~/.cursor/`, etc.)
 2. **Models** normalize into Events and Sessions
 3. **Web server** aggregates via `/api/stats`, `/api/sessions`, `/api/models`, `/api/hours`
-4. **Optimizer** (`/api/optimize` POST) builds a user profile, tries LLM analysis, falls back to data-driven heuristics
+4. **Optimizer** (`/api/optimize` POST) builds a user profile, computes deterministic metrics, sends structured JSON to LLM for intelligent analysis
 5. **Frontend** renders: force-directed graph, model usage, hourly activity, sessions, cost breakdown, optimizer drawer
 
 ## Build & Run
@@ -53,19 +53,25 @@ pytest
 
 ## Key Design Decisions
 - **No frameworks on frontend** — vanilla JS + D3 for the graph, keeps it fast and dependency-free
-- **LLM-optional optimizer** — works fully offline with data-driven fallback; LLM just adds depth
+- **LLM-required optimizer** — setup guarantees a working LLM (Ollama auto-installed/pulled, or cloud provider verified). Python computes deterministic metrics; LLM adds intelligent analysis
 - **Knowledge base in code** — `KNOWLEDGE_BASE` dict in optimizer.py contains per-tool best practices sourced from official docs
 - **Real data only** — optimizer never guesses; every recommendation is backed by actual usage metrics from the profile
 
 ## Optimizer Architecture (optimizer.py)
-The optimizer is the most complex module:
-1. `build_user_profile()` — aggregates sessions into a rich profile (tools, sessions, projects, intents, model usage, per-project details)
-2. `format_profile_for_prompt()` — converts profile to markdown for LLM consumption
-3. `OPTIMIZER_PROMPT` — instructs LLM to grade, recommend, and identify missing features
-4. `_data_driven_fallback()` — heuristic fallback generating: scores, grades, recommendations, developer profile, project insights, workflow assessment
-5. `_check_feature_evidence()` — per-feature detection using profile data
+The optimizer is the most complex module. It uses a hybrid approach:
 
-Output schema: `{score, developer_profile, grades, recommendations, missing_features, project_insights, workflow, source}`
+**Python-computed (deterministic, always accurate):**
+1. `build_user_profile()` — aggregates sessions into a rich profile (tools, sessions, projects, intents, model usage, per-project details)
+2. `_analyze_prompts()` — NLP-lite prompt analysis (correction spirals, repeated prompts, slash commands, specificity)
+3. `_analyze_anti_patterns()` — detects anti-patterns with severity, examples, and fixes
+4. `_build_cost_forensics()` — cost analysis with waste estimation by project and model
+
+**LLM-powered (intelligent analysis):**
+5. `_build_llm_input()` — converts profile + metrics into structured JSON for the LLM (not prose)
+6. `OPTIMIZER_PROMPT` — instructs LLM to grade, recommend, and identify missing features
+7. `_merge_results()` — combines Python metrics + LLM analysis into final response
+
+Output schema: `{anti_patterns, cost_forensics, prompt_analysis, context_engineering, session_details, profile_summary, score, developer_profile, grades, recommendations, missing_features, project_insights, workflow, source}`
 
 ## Testing
 ```bash
@@ -76,4 +82,4 @@ pytest tests/ -k test_optimizer  # optimizer tests
 ## Common Tasks
 - Adding a new collector: subclass `BaseCollector` in `collectors/`, register in `server.py`
 - Adding a tool to knowledge base: add entry to `KNOWLEDGE_BASE` dict in `optimizer.py`
-- Adding optimizer output fields: update `OPTIMIZER_PROMPT` JSON schema, `_data_driven_fallback()` return dict, and `optimizer.js` `_renderResults()`
+- Adding optimizer output fields: update `OPTIMIZER_PROMPT` JSON schema, `_merge_results()` in optimizer.py, and `optimizer.js` `_renderResults()`

@@ -1,9 +1,13 @@
 # ruff: noqa: E501
 """AI Usage Optimizer — LLM-powered workflow recommendations.
 
-Builds a rich user profile from real collector data, cross-references
-against current best practices for each tool, and uses an LLM to
-identify gaps and generate personalized, actionable recommendations.
+Architecture:
+  1. Python computes deterministic metrics (anti-patterns, cost forensics,
+     prompt analysis, context engineering, session details)
+  2. These go BOTH to the LLM (as structured JSON) AND directly into the response
+  3. LLM adds intelligence: grades, recommendations, developer_profile,
+     project_insights, workflow, missing_features
+  4. Final response merges Python metrics + LLM analysis
 """
 
 from __future__ import annotations
@@ -12,11 +16,7 @@ import json
 from collections import Counter, defaultdict
 from typing import Any
 
-from agenttop.analysis.engine import (
-    check_llm_available,
-    get_completion,
-    is_llm_configured,
-)
+from agenttop.analysis.engine import get_completion
 from agenttop.config import Config
 from agenttop.models import Session
 
@@ -232,126 +232,67 @@ UNIVERSAL_PRACTICES = [
 
 
 # ---------------------------------------------------------------------------
-# Prompt template: gives the LLM both user profile and knowledge base
+# LLM prompt: smaller, focused on what only the LLM can do.
+# Python handles all deterministic computation; LLM adds intelligence.
 # ---------------------------------------------------------------------------
 
 OPTIMIZER_PROMPT = """\
-You are an expert AI coding tool usage optimizer. You have deep knowledge of \
-every major AI coding tool's features, pricing, and best practices.
+You are an expert AI coding tool optimizer. Analyze the structured usage data \
+below and provide intelligent analysis.
 
-Your job: analyze this developer's REAL usage data, compare it against the \
-best practices for the tools they actually use, and identify the specific \
-gaps where they're leaving value on the table.
+IMPORTANT: The "computed_metrics" section contains pre-computed deterministic \
+data (anti-patterns, cost forensics, prompt analysis, context engineering). \
+Do NOT recompute these — they are already accurate. Focus on interpretation \
+and recommendations.
 
-## Developer's Usage Profile
+## Input Data (JSON)
 
-{user_profile}
-
-## Tool-Specific Best Practices
-
-{tool_knowledge}
-
-## Universal Best Practices
-{universal_practices}
+```json
+{input_json}
+```
 
 ## Your Task
 
-1. **Grade** the developer on 5 dimensions (A/B/C/D with one-sentence justification):
-   - Cache Efficiency: How well they leverage prompt caching
-   - Session Hygiene: How they manage conversation context
-   - Model Selection: Whether they use the right model for each task
-   - Prompt Quality: Based on session patterns and intent distribution
-   - Tool Utilization: How many tool features they actually use
+Using the data above, return ONLY valid JSON with this exact structure:
 
-2. **Identify missing features**: For each tool they actively use, find \
-specific features from the best practices that their usage data suggests \
-they're NOT using. Be specific — don't guess randomly. Only flag features \
-where the data gives evidence they're missing out.
-
-3. **Generate 3-7 recommendations** ranked by estimated impact, each with:
-   - Specific action to take (not generic advice)
-   - Why their data suggests they need this
-   - Estimated savings (tokens, cost, or time)
-
-4. **Overall score** (0-100) based on how optimally they're using their tools.
-
-5. **Developer profile**: Build a concise developer bio/identity from the data:
-   - What kind of developer they are (based on projects, intents, tools)
-   - Their AI usage personality (power user, cautious adopter, debugger, explorer, etc.)
-   - Work style observations (session patterns, time-of-day, project focus)
-
-6. **Per-project insights** (for each project with significant usage):
-   - What kind of work is happening (debugging-heavy? greenfield? refactoring?)
-   - Project-specific recommendations (e.g., "agenttop sessions are long, use /compact")
-   - Which tools/models are being used and whether they're optimal for this project type
-   - Where they are underutilizing or wrongly utilizing their tools for this project
-
-7. **Workflow Assessment**:
-   - "current": How AI tools currently fit in the developer's workflow (2-3 sentences, be specific about patterns you see)
-   - "future": What an optimized workflow would look like (2-3 sentences, concrete improvements)
-
-8. **Anti-pattern diagnosis**: For each detected anti-pattern, explain WHY it matters
-   with real numbers. Calculate wasted tokens for correction spirals. Explain context
-   degradation for marathon sessions. Be harsh but constructive.
-
-For each recommendation, include a "source" field referencing the best practice or article it's based on (e.g., "Claude Code docs: CLAUDE.md", "Anthropic prompt caching guide", "Cursor rules docs").
-
-Return ONLY valid JSON with this structure:
+```json
 {{
-  "score": <0-100>,
+  "score": <0-100 overall optimization score>,
   "developer_profile": {{
-    "title": "short identity label, e.g. 'Full-Stack AI Power User'",
-    "bio": "2-3 sentence developer profile based on the data",
-    "traits": ["trait1", "trait2", "trait3"],
-    "ai_personality": "one of: power_user, methodical_builder, debug_warrior, explorer, cautious_adopter, efficiency_optimizer"
+    "title": "<short identity, e.g. 'Full-Stack AI Power User'>",
+    "bio": "<2-3 sentence profile based on the data>",
+    "traits": ["<trait1>", "<trait2>", "<trait3>"],
+    "ai_personality": "<one of: power_user, methodical_builder, debug_warrior, explorer, cautious_adopter, efficiency_optimizer>"
   }},
   "grades": {{
-    "cache_efficiency": {{"grade": "A-D", "detail": "one sentence with real numbers from their data"}},
-    "session_hygiene": {{"grade": "A-D", "detail": "one sentence with real numbers"}},
-    "model_selection": {{"grade": "A-D", "detail": "one sentence"}},
-    "prompt_quality": {{"grade": "A-D", "detail": "one sentence"}},
-    "tool_utilization": {{"grade": "A-D", "detail": "one sentence"}}
+    "cache_efficiency": {{"grade": "<A/B/C/D>", "detail": "<one sentence with numbers>"}},
+    "session_hygiene": {{"grade": "<A/B/C/D>", "detail": "<one sentence with numbers>"}},
+    "model_selection": {{"grade": "<A/B/C/D>", "detail": "<one sentence>"}},
+    "prompt_quality": {{"grade": "<A/B/C/D>", "detail": "<one sentence>"}},
+    "tool_utilization": {{"grade": "<A/B/C/D>", "detail": "<one sentence>"}}
   }},
   "recommendations": [
-    {{"title": "short actionable title", "description": "specific advice referencing their data", "priority": "high/medium/low", "savings": "estimated impact", "source": "reference to docs/article/best practice"}}
+    {{"title": "<actionable title>", "description": "<specific advice referencing their data>", "priority": "<high/medium/low>", "savings": "<estimated impact>", "source": "<reference>"}}
   ],
   "missing_features": [
-    {{"tool": "tool name", "feature": "specific feature name", "evidence": "what in their data suggests they're not using this", "benefit": "what they'd gain"}}
+    {{"tool": "<tool name>", "feature": "<feature name>", "evidence": "<data evidence>", "benefit": "<what they'd gain>"}}
   ],
   "project_insights": [
-    {{"project": "name", "type": "greenfield/maintenance/debugging/refactoring/exploration", "insight": "specific observation from data", "recommendation": "actionable advice", "underutilized": "what tools/features are underused here", "recommended_model": {{"model": "model name (e.g. Sonnet 4.6, Opus 4.6, Haiku 4.5)", "reason": "why this model is optimal for this project's workload"}}}}
+    {{"project": "<name>", "type": "<greenfield/maintenance/debugging/refactoring/exploration>", "insight": "<observation>", "recommendation": "<advice>", "underutilized": "<features>", "recommended_model": {{"model": "<name>", "reason": "<why>"}}}}
   ],
   "workflow": {{
-    "current": "2-3 sentence assessment of current AI workflow",
-    "future": "2-3 sentence vision of optimized workflow"
-  }},
-  "context_engineering": {{
-    "assessment": "2-3 sentence assessment of how well they engineer context (prompt structure, session length, cache utilization, tool call patterns)",
-    "avg_tokens_per_message": <number from profile>,
-    "bloated_sessions": <number>,
-    "bloated_pct": <number>,
-    "cost_per_message": <number>
-  }},
-  "anti_patterns": [
-    {{"pattern": "name", "icon": "emoji", "severity": "high/medium/low", "count": <number>, "detail": "explanation with real numbers", "fix": "actionable advice", "examples": ["example1"]}}
-  ],
-  "cost_forensics": {{
-    "total_cost": <number>,
-    "estimated_waste": <number>,
-    "waste_pct": <number>,
-    "cost_by_project": [{{"project": "name", "cost": <number>, "tokens": <number>}}],
-    "cost_by_model": [{{"model": "id", "cost": <number>, "tokens": <number>}}]
-  }},
-  "prompt_analysis": {{
-    "prompt_length_distribution": {{"commands_under_20": <n>, "short_20_100": <n>, "detailed_100_500": <n>, "very_detailed_500_plus": <n>, "avg_length": <n>}},
-    "specificity_score": <number>,
-    "correction_spirals": [],
-    "repeated_prompts": [],
-    "slash_commands": {{}},
-    "uses_compact": <number>,
-    "uses_clear": <number>
+    "current": "<2-3 sentence current workflow assessment>",
+    "future": "<2-3 sentence optimized workflow vision>"
   }}
 }}
+```
+
+Rules:
+- Reference REAL numbers from the data (tokens, costs, session counts)
+- 3-7 recommendations, ranked by impact
+- Only flag missing features where data gives evidence
+- Be specific and actionable, not generic
+- Return ONLY the JSON object, no markdown fences, no explanation
 """
 
 
@@ -456,7 +397,7 @@ def _analyze_anti_patterns(
         total_wasted = sum(sp["tokens_wasted"] for sp in spirals)
         patterns.append({
             "pattern": "Correction Spirals",
-            "icon": "\uD83C\uDF00",
+            "icon": "\U0001f300",
             "severity": "high",
             "count": len(spirals),
             "detail": (
@@ -481,7 +422,7 @@ def _analyze_anti_patterns(
         marathon_tokens = sum(s.total_tokens for s in marathon_sessions)
         patterns.append({
             "pattern": "Marathon Sessions",
-            "icon": "\uD83C\uDFC3",
+            "icon": "\U0001f3c3",
             "severity": "high" if len(marathon_sessions) > 5 else "medium",
             "count": len(marathon_sessions),
             "detail": (
@@ -506,7 +447,7 @@ def _analyze_anti_patterns(
     if specificity < 30:
         patterns.append({
             "pattern": "Vague Prompts",
-            "icon": "\uD83C\uDF2B\uFE0F",
+            "icon": "\U0001f32b\ufe0f",
             "severity": "medium",
             "count": round((100 - specificity) / 100 * sum(
                 len(s.prompts) for s in sessions
@@ -529,7 +470,7 @@ def _analyze_anti_patterns(
     if bloated > 3 and uses_compact == 0 and uses_clear == 0:
         patterns.append({
             "pattern": "No Context Management",
-            "icon": "\uD83D\uDDC4\uFE0F",
+            "icon": "\U0001f5c4\ufe0f",
             "severity": "medium",
             "count": bloated,
             "detail": (
@@ -548,7 +489,7 @@ def _analyze_anti_patterns(
     if repeated:
         patterns.append({
             "pattern": "Repeated Prompts",
-            "icon": "\uD83D\uDD01",
+            "icon": "\U0001f501",
             "severity": "low",
             "count": sum(r["count"] for r in repeated),
             "detail": (
@@ -620,7 +561,6 @@ def _build_cost_forensics(
     estimated_waste = 0.0
     for s in sessions:
         if s.message_count > 50:
-            # After 50 messages, roughly estimate tail fraction as wasted
             tail_fraction = (s.message_count - 50) / s.message_count
             estimated_waste += s.estimated_cost_usd * tail_fraction * 0.5
 
@@ -773,7 +713,7 @@ def build_user_profile(
                         break
                 if session_intent != "other":
                     break
-            # Context efficiency = tool_calls / messages (how much exploration per message)
+            # Context efficiency = tool_calls / messages
             context_ratio = round(s.tool_call_count / s.message_count, 1) if s.message_count > 0 else 0
             session_details.append({
                 "project": pname,
@@ -795,9 +735,7 @@ def build_user_profile(
         total_tokens_all = sum(s.total_tokens for s in sessions)
         avg_tokens_per_msg = round(total_tokens_all / total_msgs) if total_msgs > 0 else 0
         avg_tool_calls_per_session = round(total_tool_calls_all / len(sessions), 1) if sessions else 0
-        # Sessions where user sent >50 messages (context likely degraded)
         bloated_sessions = sum(1 for s in sessions if s.message_count > 50)
-        # Cost efficiency: cost per useful message
         total_cost_all = sum(s.estimated_cost_usd for s in sessions)
         cost_per_msg = round(total_cost_all / total_msgs, 4) if total_msgs > 0 else 0
         profile["context_engineering"] = {
@@ -852,7 +790,6 @@ def build_user_profile(
             total_cache_read += cache_r
             total_cache_create += cache_c
 
-            # Per-model cache rate
             model_input_total = inp + cache_r
             model_cache_rate = (
                 (cache_r / model_input_total * 100)
@@ -868,14 +805,12 @@ def build_user_profile(
                 "cache_hit_rate": round(model_cache_rate, 1),
             }
 
-        # Overall cache rate
         overall_input = total_input + total_cache_read
         overall_cache_rate = (
             (total_cache_read / overall_input * 100)
             if overall_input > 0 else 0
         )
 
-        # Output/input ratio (code generation intensity)
         output_ratio = (
             (total_output / total_input * 100)
             if total_input > 0 else 0
@@ -911,203 +846,55 @@ def build_user_profile(
     return profile
 
 
-def format_profile_for_prompt(profile: dict[str, Any]) -> str:
-    """Format user profile as readable text for the LLM prompt."""
-    lines = []
+def _build_llm_input(
+    profile: dict[str, Any],
+    active_tool_ids: set[str],
+) -> dict[str, Any]:
+    """Build a clean JSON payload for the LLM.
 
-    # Active tools
-    lines.append("### Active Tools")
-    for t in profile.get("active_tools", []):
-        lines.append(
-            f"- **{t['display_name']}**: {t['sessions']} sessions, "
-            f"{t['messages']:,} messages, {t['tokens']:,} tokens, "
-            f"${t['cost']:.2f} cost ({t['status']})"
-        )
-    lines.append(
-        f"- **Totals**: {profile.get('total_tokens', 0):,} tokens, "
-        f"${profile.get('total_cost', 0):.2f} cost"
-    )
+    Includes the profile data + relevant knowledge base, all as structured
+    JSON instead of prose markdown.
+    """
+    # Extract relevant knowledge base entries
+    tool_knowledge = {}
+    for tool_id in active_tool_ids:
+        kb = KNOWLEDGE_BASE.get(tool_id)
+        if kb:
+            tool_knowledge[tool_id] = {
+                "display_name": kb["display_name"],
+                "features": [
+                    {"name": f["name"], "impact": f["impact"]}
+                    for f in kb["features"]
+                ],
+                "anti_patterns": kb["anti_patterns"],
+                "cost_benchmarks": kb.get("cost_benchmarks"),
+            }
 
-    # Session patterns
-    lines.append("\n### Session Patterns")
-    lines.append(
-        f"- Total sessions: {profile.get('session_count', 0)}"
-    )
-    avg = profile.get("avg_messages_per_session", 0)
-    lines.append(f"- Average messages/session: {avg:.1f}")
-    lines.append(
-        f"- Max session length: "
-        f"{profile.get('max_session_messages', 0)} messages"
-    )
-    dist = profile.get("session_distribution", {})
-    if dist:
-        lines.append(
-            f"- Distribution: {dist.get('short_under_10', 0)} short, "
-            f"{dist.get('medium_10_to_50', 0)} medium, "
-            f"{dist.get('long_50_plus', 0)} long, "
-            f"{dist.get('marathon_100_plus', 0)} marathon (100+)"
-        )
-    ratio = profile.get("tool_call_ratio")
-    if ratio is not None:
-        lines.append(f"- Tool call ratio: {ratio}x (calls per message)")
-
-    # Projects (with per-project detail)
-    project_details = profile.get("project_details")
-    if project_details:
-        lines.append(f"\n### Projects ({profile.get('project_count', 0)} total)")
-        for name, pd in list(project_details.items())[:10]:
-            lines.append(f"\n**{name}**:")
-            lines.append(f"  - {pd['sessions']} sessions, {pd['tokens']:,} tokens, ${pd['cost']:.2f} cost")
-            lines.append(f"  - {pd['messages']} messages, {pd['tool_calls']} tool calls")
-            lines.append(f"  - Tools: {', '.join(pd['tools'])}")
-            if pd.get("intents"):
-                top_intents = sorted(pd["intents"].items(), key=lambda x: x[1], reverse=True)[:3]
-                lines.append(f"  - Work types: {', '.join(f'{i}({c})' for i, c in top_intents)}")
-            if pd.get("sample_prompts"):
-                lines.append(f"  - Sample prompts: {' | '.join(pd['sample_prompts'])}")
-    elif profile.get("top_projects"):
-        lines.append(f"\n### Projects ({profile.get('project_count', 0)} total)")
-        for p, count in list(profile["top_projects"].items())[:10]:
-            lines.append(f"- {p}: {count} sessions")
-
-    # Intent distribution
-    intents = profile.get("intent_distribution")
-    if intents:
-        lines.append("\n### Work Intent Distribution")
-        total = sum(intents.values())
-        for intent, count in sorted(
-            intents.items(), key=lambda x: x[1], reverse=True
-        ):
-            pct = count / total * 100 if total > 0 else 0
-            lines.append(f"- {intent}: {count} ({pct:.0f}%)")
-
-    # Temporal
-    peak = profile.get("peak_hour")
-    if peak is not None:
-        lines.append(f"\n### Temporal: Peak hour = {peak}:00")
-
-    # Model usage
-    mu = profile.get("model_usage")
-    if mu:
-        lines.append("\n### Model Usage")
-        lines.append(
-            f"- Overall cache hit rate: {mu['overall_cache_hit_rate']}%"
-        )
-        lines.append(
-            f"- Output/input ratio: {mu['output_to_input_ratio']}%"
-        )
-        lines.append(f"- Models used: {mu['model_count']}")
-        for mid, info in mu.get("models", {}).items():
-            lines.append(
-                f"  - {mid}: {info['total_tokens']:,} tokens "
-                f"(cache: {info['cache_hit_rate']}%)"
-            )
-
-    # Context engineering metrics
-    ce = profile.get("context_engineering")
-    if ce:
-        lines.append("\n### Context Engineering")
-        lines.append(f"- Avg tokens per message: {ce['avg_tokens_per_message']:,}")
-        lines.append(f"- Avg tool calls per session: {ce['avg_tool_calls_per_session']}")
-        lines.append(f"- Bloated sessions (>50 msgs): {ce['bloated_sessions']} ({ce['bloated_pct']}%)")
-        lines.append(f"- Cost per message: ${ce['cost_per_message']:.4f}")
-        lines.append(f"- Total messages: {ce['total_messages']:,}, total cost: ${ce['total_cost']:.2f}")
-
-    # Prompt analysis
-    pa = profile.get("prompt_analysis")
-    if pa:
-        pld = pa.get("prompt_length_distribution", {})
-        lines.append("\n### Prompt Analysis")
-        lines.append(
-            f"- Length distribution: {pld.get('commands_under_20', 0)} commands, "
-            f"{pld.get('short_20_100', 0)} short, "
-            f"{pld.get('detailed_100_500', 0)} detailed, "
-            f"{pld.get('very_detailed_500_plus', 0)} very detailed"
-        )
-        lines.append(f"- Specificity score: {pa.get('specificity_score', 0)}% (prompts >= 100 chars)")
-        lines.append(f"- Avg prompt length: {pld.get('avg_length', 0)} chars")
-        sc = pa.get("slash_commands", {})
-        if sc:
-            lines.append(f"- Slash commands: {', '.join(f'{k}({v}x)' for k, v in sc.items())}")
-        spirals = pa.get("correction_spirals", [])
-        if spirals:
-            lines.append(f"- Correction spirals: {len(spirals)} sessions with 3+ corrections")
-        repeated = pa.get("repeated_prompts", [])
-        if repeated:
-            lines.append(f"- Repeated prompts: {len(repeated)} prompts used 3+ times (skill candidates)")
-
-    # Detected anti-patterns
-    aps = profile.get("anti_patterns")
-    if aps:
-        lines.append("\n### Detected Anti-Patterns")
-        for ap in aps:
-            lines.append(f"- **{ap['pattern']}** [{ap['severity']}]: {ap['detail']}")
-
-    # Cost forensics
-    cf = profile.get("cost_forensics")
-    if cf:
-        lines.append("\n### Cost Forensics")
-        lines.append(f"- Total cost: ${cf.get('total_cost', 0):.2f}")
-        lines.append(f"- Estimated waste: ${cf.get('estimated_waste', 0):.2f} ({cf.get('waste_pct', 0)}%)")
-        top_projects = cf.get("cost_by_project", [])[:5]
-        if top_projects:
-            lines.append("- Top projects by cost: " + ", ".join(
-                f"{p['project']}(${p['cost']:.2f})" for p in top_projects
-            ))
-
-    # Recent session details (top by token usage)
-    sd = profile.get("session_details")
-    if sd:
-        lines.append(f"\n### Top Sessions by Token Usage (showing {len(sd)})")
-        for s in sd[:10]:
-            lines.append(
-                f"- **{s['project']}** [{s['intent']}] via {s['tool']}: "
-                f"{s['messages']} msgs, {s['tokens']:,} tokens, ${s['cost']:.2f}, "
-                f"context_ratio={s['context_ratio']}x"
-            )
-            if s.get("first_prompt"):
-                lines.append(f"  First prompt: \"{s['first_prompt']}\"")
-
-    # Lifetime
-    lt = profile.get("claude_lifetime")
-    if lt:
-        lines.append("\n### Claude Code Lifetime Stats")
-        lines.append(
-            f"- Total sessions: {lt.get('total_sessions', 0)}"
-        )
-        lines.append(
-            f"- Total messages: {lt.get('total_messages', 0)}"
-        )
-        first = lt.get("first_session")
-        if first:
-            lines.append(f"- First session: {first}")
-
-    return "\n".join(lines)
-
-
-def format_tool_knowledge(active_tool_ids: set[str]) -> str:
-    """Format only the knowledge for tools the user actually uses."""
-    lines = []
-    for tool_id, kb in KNOWLEDGE_BASE.items():
-        if tool_id not in active_tool_ids:
-            continue
-        lines.append(f"\n### {kb['display_name']}")
-
-        lines.append("\n**Key Features:**")
-        for f in kb["features"]:
-            lines.append(f"- **{f['name']}**: {f['description']}")
-
-        lines.append("\n**Common Anti-Patterns:**")
-        for ap in kb["anti_patterns"]:
-            lines.append(f"- {ap}")
-
-        benchmarks = kb.get("cost_benchmarks")
-        if benchmarks:
-            lines.append("\n**Cost Benchmarks:**")
-            for k, v in benchmarks.items():
-                lines.append(f"- {k}: {v}")
-
-    return "\n".join(lines)
+    return {
+        "profile": {
+            "active_tools": profile.get("active_tools", []),
+            "total_tokens": profile.get("total_tokens", 0),
+            "total_cost": profile.get("total_cost", 0),
+            "session_count": profile.get("session_count", 0),
+            "avg_messages_per_session": profile.get("avg_messages_per_session", 0),
+            "max_session_messages": profile.get("max_session_messages", 0),
+            "session_distribution": profile.get("session_distribution", {}),
+            "tool_call_ratio": profile.get("tool_call_ratio"),
+            "intent_distribution": profile.get("intent_distribution", {}),
+            "peak_hour": profile.get("peak_hour"),
+            "project_details": profile.get("project_details", {}),
+            "model_usage": profile.get("model_usage", {}),
+        },
+        "computed_metrics": {
+            "context_engineering": profile.get("context_engineering", {}),
+            "prompt_analysis": profile.get("prompt_analysis", {}),
+            "anti_patterns": profile.get("anti_patterns", []),
+            "cost_forensics": profile.get("cost_forensics", {}),
+            "session_details": profile.get("session_details", []),
+        },
+        "tool_knowledge": tool_knowledge,
+        "universal_practices": UNIVERSAL_PRACTICES,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1118,8 +905,8 @@ def format_tool_knowledge(active_tool_ids: set[str]) -> str:
 class AIUsageOptimizer:
     """Analyzes usage patterns and generates optimization recommendations.
 
-    Primary path: LLM analyzes user profile + knowledge base.
-    Fallback: data-driven heuristic analysis (no hardcoded guesses).
+    Python computes deterministic metrics; LLM adds intelligent analysis.
+    Setup guarantees LLM is always available.
     """
 
     def __init__(
@@ -1141,93 +928,54 @@ class AIUsageOptimizer:
         """Run optimization analysis.
 
         1. Build rich user profile from real data
-        2. Try LLM analysis with profile + knowledge base
-        3. Fall back to data-driven heuristics if LLM unavailable
+        2. Compute deterministic metrics (anti-patterns, costs, etc.)
+        3. Send structured JSON to LLM for intelligent analysis
+        4. Merge Python metrics + LLM analysis into final response
         """
         # Build the user profile from real data
         profile = build_user_profile(
             stats, sessions, model_usage, self._claude,
         )
 
-        # Always include the profile in the response
-        result = self._try_llm_analysis(profile, stats)
-        result["profile_summary"] = {
-            "total_tokens": profile.get("total_tokens", 0),
-            "total_cost": profile.get("total_cost", 0),
-            "session_count": profile.get("session_count", 0),
-            "avg_messages": profile.get(
-                "avg_messages_per_session", 0
-            ),
-            "cache_hit_rate": (
-                profile.get("model_usage", {})
-                .get("overall_cache_hit_rate", 0)
-            ),
-            "active_tools": len(profile.get("active_tools", [])),
-        }
+        # Get LLM analysis
+        llm_result = self._get_llm_analysis(profile)
+
+        # Merge: Python-computed metrics (always accurate) + LLM intelligence
+        result = self._merge_results(profile, llm_result)
         return result
 
-    def _llm_not_available_error(self, message: str) -> dict[str, Any]:
-        """Return an error result when no LLM is available."""
-        return {
-            "error": message,
-            "source": "none",
-            "setup_hint": (
-                "The optimizer requires an LLM. Quickest setup:\n\n"
-                "  brew install ollama\n"
-                "  ollama pull qwen3:1.7b\n"
-                "  ollama serve\n\n"
-                "Then refresh and try again."
-            ),
-        }
-
-    def _try_llm_analysis(
+    def _get_llm_analysis(
         self,
         profile: dict[str, Any],
-        stats: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Run LLM-powered analysis. Requires a configured LLM."""
-        if not is_llm_configured(self._config.llm):
-            return self._llm_not_available_error(
-                "No LLM configured. Set up Ollama (free, local) or a cloud provider."
-            )
-
-        llm_err = check_llm_available(self._config.llm)
-        if llm_err:
-            return self._llm_not_available_error(llm_err)
-
-        # Build the prompt with real data
+        """Get LLM-powered analysis. Returns parsed JSON or error dict."""
         active_tool_ids = {
             t["tool"] for t in profile.get("active_tools", [])
         }
-        profile_text = format_profile_for_prompt(profile)
-        tool_knowledge = format_tool_knowledge(active_tool_ids)
-        universal = "\n".join(
-            f"- {p}" for p in UNIVERSAL_PRACTICES
-        )
 
-        prompt = OPTIMIZER_PROMPT.format(
-            user_profile=profile_text,
-            tool_knowledge=tool_knowledge,
-            universal_practices=universal,
-        )
+        # Build structured JSON input for the LLM
+        llm_input = _build_llm_input(profile, active_tool_ids)
+        input_json = json.dumps(llm_input, indent=2, default=str)
+
+        prompt = OPTIMIZER_PROMPT.format(input_json=input_json)
 
         raw = get_completion(
             prompt,
             self._config.llm,
             system=(
                 "You are an expert AI coding tool optimizer. "
-                "Analyze REAL usage data. Be specific and data-driven. "
-                "Return ONLY valid JSON."
+                "Analyze the structured usage data and return ONLY valid JSON. "
+                "No markdown fences, no explanation — just the JSON object."
             ),
             max_tokens=4000,
         )
 
         if raw.startswith("[error]"):
-            return self._llm_not_available_error(raw)
+            return {"error": raw, "source": "error"}
 
         try:
             cleaned = raw.strip()
-            # Strip markdown code fences
+            # Strip markdown code fences if present
             if cleaned.startswith("```"):
                 cleaned = cleaned.split("\n", 1)[1]
             if cleaned.endswith("```"):
@@ -1236,7 +984,72 @@ class AIUsageOptimizer:
             parsed["source"] = "llm"
             return parsed
         except (json.JSONDecodeError, IndexError, KeyError):
-            return self._llm_not_available_error(
-                "LLM returned invalid response. Try again or switch models."
-            )
+            return {
+                "error": "LLM returned invalid JSON. Try again or switch models.",
+                "source": "error",
+            }
 
+    def _merge_results(
+        self,
+        profile: dict[str, Any],
+        llm_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge Python-computed metrics with LLM analysis.
+
+        Python metrics are always included (deterministic, accurate).
+        LLM fields are included when available, with sensible defaults.
+        """
+        # Python-computed fields (always accurate)
+        result: dict[str, Any] = {
+            "anti_patterns": profile.get("anti_patterns", []),
+            "cost_forensics": profile.get("cost_forensics", {}),
+            "prompt_analysis": profile.get("prompt_analysis", {}),
+            "context_engineering": profile.get("context_engineering", {}),
+            "session_details": profile.get("session_details", []),
+            "profile_summary": {
+                "total_tokens": profile.get("total_tokens", 0),
+                "total_cost": profile.get("total_cost", 0),
+                "session_count": profile.get("session_count", 0),
+                "avg_messages": profile.get(
+                    "avg_messages_per_session", 0
+                ),
+                "cache_hit_rate": (
+                    profile.get("model_usage", {})
+                    .get("overall_cache_hit_rate", 0)
+                ),
+                "active_tools": len(profile.get("active_tools", [])),
+            },
+        }
+
+        # Handle LLM errors
+        if llm_result.get("source") == "error":
+            result["error"] = llm_result.get("error", "LLM analysis failed")
+            result["source"] = "partial"
+            result["setup_hint"] = (
+                "The optimizer requires an LLM. Quickest setup:\n\n"
+                "  brew install ollama\n"
+                "  ollama pull qwen3:1.7b\n"
+                "  ollama serve\n\n"
+                "Then refresh and try again."
+            )
+            # Provide defaults so the frontend can still render Python metrics
+            result["score"] = 0
+            result["grades"] = {}
+            result["recommendations"] = []
+            result["missing_features"] = []
+            result["project_insights"] = []
+            result["workflow"] = {}
+            result["developer_profile"] = {}
+            return result
+
+        # LLM-provided fields (intelligent analysis)
+        result["score"] = llm_result.get("score", 0)
+        result["developer_profile"] = llm_result.get("developer_profile", {})
+        result["grades"] = llm_result.get("grades", {})
+        result["recommendations"] = llm_result.get("recommendations", [])
+        result["missing_features"] = llm_result.get("missing_features", [])
+        result["project_insights"] = llm_result.get("project_insights", [])
+        result["workflow"] = llm_result.get("workflow", {})
+        result["source"] = "llm"
+
+        return result

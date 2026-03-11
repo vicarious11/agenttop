@@ -98,8 +98,8 @@ DEFAULT_CONFIG_TOML = """\
 # agenttop configuration
 # See https://github.com/vicarious11/agenttop for docs
 #
-# Data monitoring (dashboard, sessions, costs) works without any LLM
-# configuration. The LLM is only used for the AI-powered optimizer.
+# LLM configuration for the AI-powered optimizer.
+# agenttop web ensures the LLM is ready before starting.
 
 # ── Ollama (default — free, local, private) ──
 # Install: brew install ollama && ollama pull qwen3:1.7b && ollama serve

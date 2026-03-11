@@ -8,12 +8,16 @@ agenttop reads your local usage data from Claude Code, Cursor, Kiro, Codex, and 
 
 ### Install
 
-```
+```bash
 pip install agenttop
 agenttop web
 ```
 
-That's it. No sign-up, no API keys, no config. Opens at `localhost:8420`.
+That's it. `agenttop web` handles everything:
+1. Installs Ollama if missing (brew on macOS, install script on Linux)
+2. Starts the Ollama server
+3. Pulls the model (~1GB, one-time)
+4. Opens the dashboard at `localhost:8420`
 
 It reads `~/.claude/`, `~/.cursor/`, `~/.codex/`, `~/.config/github-copilot/`, and Kiro data dirs — whatever you have installed.
 
@@ -45,15 +49,9 @@ Every tool, model, project, and feature — connected. See which model eats whic
 
 ### Optimizer setup
 
-The dashboard works without any LLM. The optimizer needs one.
+`agenttop web` auto-installs Ollama and pulls the model on first run. No manual setup needed.
 
-**Ollama (default — free, runs on your machine):**
-```bash
-brew install ollama
-agenttop web              # auto-starts Ollama, pulls model, done
-```
-
-That's it. `agenttop web` auto-detects Ollama, starts the server if it's not running, and pulls the model on first launch. Everything stays local — nothing leaves your computer.
+If you prefer a cloud provider instead:
 
 **Or use a cloud provider:**
 ```bash

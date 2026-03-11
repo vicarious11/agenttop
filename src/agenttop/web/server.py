@@ -170,9 +170,15 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
         return JSONResponse(_cached_optimize)
 
     # Run fresh analysis (retries if previous result was an error)
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, _run_optimize, req.days,
-    )
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, _run_optimize, req.days,
+        )
+    except Exception as e:
+        return JSONResponse({
+            "error": f"Optimizer crashed: {e}",
+            "source": "error",
+        })
     if req.days == 0 and "error" not in result:
         _cached_optimize = result
     return JSONResponse(result)
