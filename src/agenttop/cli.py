@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+from typing import Any
 
 import click
 
@@ -38,42 +40,26 @@ def dashboard(days: int) -> None:
 
 @main.command()
 def init() -> None:
-    """Initialize agenttop configuration."""
+    """Initialize agenttop configuration and ensure LLM is ready."""
     from agenttop.config import init_config
 
     path = init_config()
     click.echo(f"Config written to {path}")
     click.echo()
 
-    # Check if Ollama is running (default provider)
     from agenttop.config import load_config as _lc
     _cfg = _lc()
-    ollama_ok = _check_ollama(_cfg.llm.base_url)
-    if ollama_ok:
-        click.echo(click.style(
-            "  [ready] Ollama detected — optimizer will use local LLM", fg="green",
-        ))
-    else:
-        click.echo("  Ollama not detected. To enable the AI-powered optimizer:")
-        click.echo()
-        click.echo("    brew install ollama          # install")
-        click.echo("    ollama pull qwen3:1.7b       # download model (~1GB)")
-        click.echo("    ollama serve                 # start (keep running)")
-        click.echo()
-        click.echo("  Or use a cloud provider instead (edit config.toml):")
 
-    # Detect available cloud API keys
-    key_checks = [
-        ("Anthropic", "ANTHROPIC_API_KEY"),
-        ("OpenAI", "OPENAI_API_KEY"),
-        ("OpenRouter", "OPENROUTER_API_KEY"),
-    ]
-    for name, env_var in key_checks:
-        if os.environ.get(env_var):
-            click.echo(click.style(f"  [found] {name} API key detected ({env_var})", fg="green"))
+    if _cfg.llm.provider == "ollama":
+        _ensure_ollama(
+            model=_cfg.llm.model.replace("ollama/", ""),
+            base_url=_cfg.llm.base_url,
+        )
+    else:
+        _check_cloud_provider(_cfg)
 
     click.echo()
-    click.echo("Data monitoring works without an LLM — just launch: agenttop web")
+    click.echo(click.style("Ready! Launch with: agenttop web", fg="green"))
 
 
 @main.command()
@@ -185,12 +171,22 @@ def analyze(days: int) -> None:
 @click.option("--no-browser", is_flag=True, help="Don't auto-open browser.")
 @click.option(
     "--provider",
-    type=click.Choice(["anthropic", "openai", "ollama", "openrouter"], case_sensitive=False),
+    type=click.Choice(
+        ["anthropic", "openai", "ollama", "openrouter"],
+        case_sensitive=False,
+    ),
     default=None,
     help="LLM provider for the optimizer.",
 )
-@click.option("--model", default=None, help="LLM model name for the optimizer.")
-def web(port: int, no_browser: bool, provider: str | None, model: str | None) -> None:
+@click.option(
+    "--model", default=None, help="LLM model name for the optimizer.",
+)
+def web(
+    port: int,
+    no_browser: bool,
+    provider: str | None,
+    model: str | None,
+) -> None:
     """Launch the web dashboard with knowledge graph."""
     import uvicorn
 
@@ -198,13 +194,16 @@ def web(port: int, no_browser: bool, provider: str | None, model: str | None) ->
 
     _apply_cli_overrides(provider, model)
 
-    # Auto-setup Ollama if it's the configured provider
+    # Best-effort LLM setup — dashboard works without it,
+    # optimizer will show setup instructions if LLM is unavailable
     config = load_config()
     if config.llm.provider == "ollama":
         _ensure_ollama(
             model=config.llm.model.replace("ollama/", ""),
             base_url=config.llm.base_url,
         )
+    else:
+        _check_cloud_provider(config)
 
     from agenttop.web.server import app
 
@@ -247,7 +246,9 @@ def proxy(port: int) -> None:
         click.echo("\nProxy stopped.")
 
 
-def _check_ollama(base_url: str = "http://localhost:11434") -> bool:
+def _check_ollama(
+    base_url: str = "http://localhost:11434",
+) -> bool:
     """Quick check if Ollama is running."""
     import urllib.request
 
@@ -255,42 +256,163 @@ def _check_ollama(base_url: str = "http://localhost:11434") -> bool:
         req = urllib.request.Request(base_url, method="GET")
         with urllib.request.urlopen(req, timeout=2):
             return True
-    except Exception:
+    except Exception as e:
+        logging.debug("Ollama check failed (%s): %s", base_url, e)
         return False
 
 
-def _ensure_ollama(model: str = "qwen3:1.7b", base_url: str = "http://localhost:11434") -> None:
-    """Auto-setup Ollama: start server if installed, pull model if missing."""
+def _install_ollama() -> str | None:
+    """Install Ollama if not present. Returns binary path or None."""
+    import platform
     import shutil
+    import subprocess
+
+    ollama_bin = shutil.which("ollama")
+    if ollama_bin:
+        return ollama_bin
+
+    system = platform.system()
+
+    if system == "Darwin":
+        # macOS — try brew
+        if shutil.which("brew"):
+            click.echo("  Installing Ollama via Homebrew...")
+            try:
+                subprocess.run(
+                    ["brew", "install", "ollama"],
+                    check=True,
+                    timeout=120,
+                )
+                ollama_bin = shutil.which("ollama")
+                if ollama_bin:
+                    click.echo(click.style(
+                        "  Ollama installed.", fg="green",
+                    ))
+                    return ollama_bin
+            except (
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+            ):
+                click.echo(click.style(
+                    "  brew install ollama failed.",
+                    fg="yellow",
+                ))
+        else:
+            click.echo(click.style(
+                "  Homebrew not found — cannot auto-install Ollama.",
+                fg="yellow",
+            ))
+            click.echo("  Install manually: https://ollama.com/download")
+
+    elif system == "Linux":
+        click.echo("  Installing Ollama...")
+        try:
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                suffix=".sh", prefix="ollama-install-", delete=False,
+            ) as tmp:
+                installer_path = tmp.name
+            subprocess.run(
+                ["curl", "-fsSL", "https://ollama.com/install.sh", "-o", installer_path],
+                check=True,
+                timeout=60,
+            )
+            subprocess.run(
+                ["sh", installer_path],
+                check=True,
+                timeout=120,
+            )
+            os.unlink(installer_path)
+            ollama_bin = shutil.which("ollama")
+            if ollama_bin:
+                click.echo(click.style(
+                    "  Ollama installed.", fg="green",
+                ))
+                return ollama_bin
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
+            click.echo(click.style(
+                "  Ollama install script failed.",
+                fg="yellow",
+            ))
+            click.echo(
+                "  Install manually: "
+                "curl -fsSL https://ollama.com/install.sh | sh"
+            )
+    else:
+        click.echo(click.style(
+            f"  Auto-install not supported on {system}.",
+            fg="yellow",
+        ))
+        click.echo("  Install manually: https://ollama.com/download")
+
+    return None
+
+
+def _ensure_ollama(
+    model: str = "gemma3:4b",
+    base_url: str = "http://localhost:11434",
+) -> None:
+    """Full Ollama setup: install, start server, pull model.
+
+    Handles the entire chain so ``agenttop web`` just works.
+    Never raises — every step falls back gracefully with a warning,
+    and the dashboard still starts even if the LLM is unavailable.
+    """
     import subprocess
     import time
     import urllib.request
 
-    ollama_bin = shutil.which("ollama")
+    # Step 1: Install Ollama if missing
+    ollama_bin = _install_ollama()
     if not ollama_bin:
-        click.echo("  Ollama not installed. To enable the AI optimizer:")
-        click.echo("    brew install ollama")
-        click.echo("  Or use --provider anthropic/openai instead.")
+        click.echo(
+            "  Or use: agenttop web --provider anthropic"
+        )
         return
 
-    # Start ollama serve if not running
+    # Step 2: Start ollama serve if not running
     if not _check_ollama(base_url):
         click.echo("  Starting Ollama...")
-        subprocess.Popen(
-            [ollama_bin, "serve"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        for _ in range(10):
+        try:
+            proc = subprocess.Popen(
+                [ollama_bin, "serve"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            # Give it a moment and check it didn't crash immediately
+            time.sleep(0.3)
+            if proc.poll() is not None:
+                _, stderr = proc.communicate(timeout=2)
+                msg = stderr.decode("utf-8", errors="replace").strip()
+                logging.error("Ollama failed to start: %s", msg)
+                click.echo(click.style(
+                    f"  Ollama exited immediately: {msg[:120]}",
+                    fg="red",
+                ))
+        except (OSError, ValueError) as e:
+            logging.error("Failed to launch Ollama: %s", e)
+            click.echo(click.style(
+                f"  Failed to launch Ollama: {e}", fg="red",
+            ))
+
+        for _ in range(15):
             time.sleep(0.5)
             if _check_ollama(base_url):
                 break
 
     if not _check_ollama(base_url):
-        click.echo("  Could not start Ollama. Run `ollama serve` manually.")
+        click.echo(click.style(
+            "  Could not start Ollama. "
+            "Run `ollama serve` manually.",
+            fg="yellow",
+        ))
         return
 
-    # Check if model is available
+    # Step 3: Check if model is already pulled
     try:
         show_url = base_url.rstrip("/") + "/api/show"
         req = urllib.request.Request(
@@ -300,25 +422,56 @@ def _ensure_ollama(model: str = "qwen3:1.7b", base_url: str = "http://localhost:
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=5):
-            click.echo(click.style(f"  Ollama ready ({model})", fg="green"))
+            click.echo(click.style(
+                f"  Ollama ready ({model})", fg="green",
+            ))
             return
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug("Model %s not yet available: %s", model, e)
 
-    # Model not found — pull it
-    click.echo(f"  Pulling {model} (one-time download)...")
+    # Step 4: Pull the model
+    click.echo(f"  Pulling {model} (one-time download, ~3GB)...")
     try:
         subprocess.run(
             [ollama_bin, "pull", model],
             check=True,
-            timeout=300,
+            timeout=600,
         )
-        click.echo(click.style(f"  Ollama ready ({model})", fg="green"))
+        click.echo(click.style(
+            f"  Ollama ready ({model})", fg="green",
+        ))
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        click.echo(f"  Failed to pull {model}. Run `ollama pull {model}` manually.")
+        click.echo(click.style(
+            f"  Failed to pull {model}. "
+            f"Run `ollama pull {model}` manually.",
+            fg="yellow",
+        ))
 
 
-def _apply_cli_overrides(provider: str | None, model: str | None) -> None:
+def _check_cloud_provider(config: Any) -> None:
+    """Check cloud provider API key — warn if missing, don't exit."""
+    from agenttop.analysis.engine import is_llm_configured
+
+    if not is_llm_configured(config.llm):
+        click.echo(click.style(
+            f"  No API key for {config.llm.provider} — "
+            f"optimizer will be unavailable.",
+            fg="yellow",
+        ))
+        click.echo(
+            f"  Set {config.llm.api_key_env} to enable it.",
+        )
+        return
+
+    click.echo(click.style(
+        f"  LLM ready ({config.llm.provider}: {config.llm.model})",
+        fg="green",
+    ))
+
+
+def _apply_cli_overrides(
+    provider: str | None, model: str | None,
+) -> None:
     """Set env vars so load_config() picks up CLI flag overrides."""
     if provider:
         os.environ["AGENTTOP_LLM_PROVIDER"] = provider
@@ -327,7 +480,9 @@ def _apply_cli_overrides(provider: str | None, model: str | None) -> None:
 
 
 def _range_label(days: int) -> str:
-    labels = {0: "all time", 1: "today", 7: "last 7 days", 30: "last 30 days"}
+    labels = {
+        0: "all time", 1: "today", 7: "last 7 days", 30: "last 30 days",
+    }
     return labels.get(days, f"last {days} days")
 
 

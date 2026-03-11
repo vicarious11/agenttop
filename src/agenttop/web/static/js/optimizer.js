@@ -4,72 +4,130 @@ const Optimizer = {
   _expanded: false,
   _fullscreen: false,
   _cached: null,
+  _loading: false,
 
   init() {
-    const toggle = document.getElementById('drawer-toggle');
     const drawer = document.getElementById('optimizer-drawer');
+    const handle = document.getElementById('drawer-toggle');
     const fsBtn = document.getElementById('drawer-fullscreen');
+    const chevron = document.getElementById('drawer-chevron');
+
     drawer.classList.add('collapsed');
 
-    // Pre-fetch analysis (server precomputes at boot, so this is usually instant)
+    // Pre-fetch analysis in background
     Optimizer._prefetch();
 
-    toggle.addEventListener('click', (e) => {
-      // Don't toggle drawer when clicking fullscreen button
-      if (e.target.id === 'drawer-fullscreen') return;
-      Optimizer._expanded = !Optimizer._expanded;
-      drawer.classList.toggle('collapsed', !Optimizer._expanded);
-      if (!Optimizer._expanded) {
-        Optimizer._fullscreen = false;
-        drawer.classList.remove('fullscreen');
-      }
-      if (Optimizer._expanded) {
-        if (Optimizer._cached) {
-          Optimizer._renderResults(Optimizer._cached);
-        } else {
-          Optimizer._renderInitial();
-        }
-      }
+    // Toggle drawer on handle click (but not fullscreen button)
+    handle.addEventListener('click', (e) => {
+      if (e.target.closest('#drawer-fullscreen')) return;
+      Optimizer._toggle();
     });
 
+    // Fullscreen button
     fsBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!Optimizer._expanded) {
-        Optimizer._expanded = true;
-        drawer.classList.remove('collapsed');
-        if (Optimizer._cached) {
-          Optimizer._renderResults(Optimizer._cached);
-        } else {
-          Optimizer._renderInitial();
-        }
+        Optimizer._expand();
       }
       Optimizer._fullscreen = !Optimizer._fullscreen;
       drawer.classList.toggle('fullscreen', Optimizer._fullscreen);
     });
 
-    // Escape exits fullscreen first, then closes drawer
+    // Escape: exit fullscreen first, then close drawer
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && Optimizer._fullscreen) {
-        Optimizer._fullscreen = false;
-        drawer.classList.remove('fullscreen');
-        e.stopPropagation();
+      if (e.key === 'Escape') {
+        if (Optimizer._fullscreen) {
+          Optimizer._fullscreen = false;
+          drawer.classList.remove('fullscreen');
+          e.stopPropagation();
+        } else if (Optimizer._expanded) {
+          Optimizer._collapse();
+        }
       }
     });
   },
 
+  _toggle() {
+    if (Optimizer._expanded) {
+      Optimizer._collapse();
+    } else {
+      Optimizer._expand();
+    }
+  },
+
+  _expand() {
+    const drawer = document.getElementById('optimizer-drawer');
+    Optimizer._expanded = true;
+    drawer.classList.remove('collapsed');
+    Optimizer._renderContent();
+  },
+
+  _collapse() {
+    const drawer = document.getElementById('optimizer-drawer');
+    Optimizer._expanded = false;
+    Optimizer._fullscreen = false;
+    drawer.classList.add('collapsed');
+    drawer.classList.remove('fullscreen');
+  },
+
+  _renderContent() {
+    if (Optimizer._loading) {
+      Optimizer._renderLoading();
+    } else if (Optimizer._cached) {
+      Optimizer._renderResults(Optimizer._cached);
+    } else {
+      Optimizer._renderInitial();
+    }
+  },
+
   async _prefetch() {
+    Optimizer._loading = true;
+    Optimizer._updateHandle();
     try {
       const res = await fetch('/api/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ days: 0 }),
       });
-      const data = await res.json();
-      if (data.source !== 'none' && !data.error) {
-        Optimizer._cached = data;
-        try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) {}
+      if (!res.ok) {
+        Optimizer._loading = false;
+        Optimizer._updateHandle();
+        return;
       }
-    } catch(e) { /* silent — user can still click Analyze */ }
+      const data = await res.json();
+      if (!data.error || data.source === 'partial') {
+        Optimizer._cached = data;
+        try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) { console.warn('Failed to cache optimizer results:', e); }
+      }
+    } catch(e) {
+      // silent — user can still click Analyze
+    }
+    Optimizer._loading = false;
+    Optimizer._updateHandle();
+    // If drawer is open, refresh content
+    if (Optimizer._expanded) Optimizer._renderContent();
+  },
+
+  _updateHandle() {
+    const title = document.querySelector('.drawer-title');
+    if (!title) return;
+    if (Optimizer._loading) {
+      title.textContent = 'AI Usage Optimizer (analyzing...)';
+    } else if (Optimizer._cached) {
+      const score = Optimizer._cached.score;
+      if (score != null && score > 0) {
+        title.textContent = `AI Usage Optimizer — Score: ${score}/100`;
+      } else {
+        title.textContent = 'AI Usage Optimizer';
+      }
+    } else {
+      title.textContent = 'AI Usage Optimizer';
+    }
+  },
+
+  _renderLoading() {
+    const content = document.getElementById('optimizer-content');
+    content.innerHTML = `<div class="loading-pulse">Building usage profile & analyzing patterns...</div>`;
   },
 
   _renderInitial() {
@@ -92,19 +150,45 @@ const Optimizer = {
     const btn = document.getElementById('analyze-btn');
     if (btn) btn.disabled = true;
 
+    Optimizer._loading = true;
+    Optimizer._updateHandle();
     content.innerHTML = `<div class="loading-pulse">Building usage profile & analyzing patterns...</div>`;
 
     try {
       const res = await fetch('/api/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: App.days }),
+        body: JSON.stringify({ days: typeof App !== 'undefined' ? App.days : 0 }),
       });
-      const data = await res.json();
-      if (data.source === 'none' || data.error) {
+
+      // Handle non-JSON responses (e.g. server 500)
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        Optimizer._loading = false;
+        Optimizer._updateHandle();
+        content.innerHTML = `
+          <div style="text-align:center;padding:24px;color:var(--neon-red);">
+            Server returned an error. Check your LLM provider is running and configured.
+            <br><br>
+            <pre style="text-align:left;background:var(--bg-card);padding:12px;border-radius:6px;font-size:11px;color:var(--text-secondary);max-width:500px;margin:0 auto;white-space:pre-wrap;overflow:auto;max-height:200px;">${text.slice(0, 500)}</pre>
+            <br>
+            <button class="neon-btn" onclick="Optimizer.analyze()">Retry</button>
+          </div>
+        `;
+        return;
+      }
+
+      Optimizer._loading = false;
+      Optimizer._updateHandle();
+
+      if (data.source === 'error' && !data.anti_patterns) {
+        // Full error — no usable data at all
         content.innerHTML = `
           <div style="text-align:center;padding:40px 24px;">
-            <div style="font-size:48px;margin-bottom:16px;">🔌</div>
+            <div style="font-size:48px;margin-bottom:16px;">\uD83D\uDD0C</div>
             <h3 style="color:var(--neon-yellow);margin-bottom:12px;">${data.error || 'LLM not available'}</h3>
             ${data.setup_hint ? `<pre style="text-align:left;background:var(--bg-card);padding:16px;border-radius:8px;margin:16px auto;max-width:500px;color:var(--text-secondary);white-space:pre-wrap;">${data.setup_hint}</pre>` : ''}
             <button class="neon-btn" onclick="Optimizer.analyze()" style="margin-top:16px;">Retry</button>
@@ -112,13 +196,17 @@ const Optimizer = {
         `;
         return;
       }
+
+      // Success or partial (has Python metrics even if LLM failed)
       Optimizer._cached = data;
-      try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) {}
+      try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) { console.warn('Failed to cache optimizer results:', e); }
       Optimizer._renderResults(data);
     } catch (err) {
+      Optimizer._loading = false;
+      Optimizer._updateHandle();
       content.innerHTML = `
         <div style="text-align:center;padding:24px;color:var(--neon-red);">
-          Analysis failed: ${err.message}
+          Network error: ${err.message}
           <br><br>
           <button class="neon-btn" onclick="Optimizer.analyze()">Retry</button>
         </div>
@@ -135,8 +223,15 @@ const Optimizer = {
     };
     let html = '<div class="animate-in">';
 
-    // Source badge
-    const sourceLabel = 'AI-Powered Analysis';
+    // Partial warning banner (LLM failed but Python metrics available)
+    if (data.source === 'partial') {
+      html += `
+        <div style="padding:10px 14px;border-radius:6px;background:rgba(255,238,0,0.06);border:1px solid rgba(255,238,0,0.2);margin-bottom:16px;font-size:11px;color:var(--neon-yellow);">
+          LLM unavailable — showing data-driven metrics only. ${data.error || ''}
+          <button class="neon-btn" onclick="Optimizer.analyze()" style="margin-left:12px;padding:4px 12px;font-size:10px;">Retry</button>
+        </div>
+      `;
+    }
 
     // Score circle
     const score = data.score || 0;
@@ -145,6 +240,9 @@ const Optimizer = {
     const scoreColor = score >= 80 ? 'var(--neon-green)' :
                        score >= 60 ? 'var(--neon-cyan)' :
                        score >= 40 ? 'var(--neon-yellow)' : 'var(--neon-red)';
+
+    const sourceLabel = data.source === 'llm' ? 'AI-Powered Analysis' :
+                        data.source === 'partial' ? 'Data-Driven Metrics' : 'Analysis';
 
     html += `
       <div class="score-container">
@@ -181,7 +279,7 @@ const Optimizer = {
 
     // Developer profile / bio
     const dp = data.developer_profile;
-    if (dp) {
+    if (dp && dp.title) {
       const personalityIcons = {
         'power_user': '\u26A1', 'debug_warrior': '\uD83D\uDEE1\uFE0F',
         'explorer': '\uD83E\uDDED', 'methodical_builder': '\uD83C\uDFD7\uFE0F',
@@ -261,7 +359,7 @@ const Optimizer = {
       html += '</div>';
     }
 
-    // Session deep-dive (top sessions by token usage) — expandable cards
+    // Session deep-dive
     const sd = data.session_details;
     if (sd && sd.length > 0) {
       html += '<div class="session-deep-section"><h3>Top Sessions (by token usage)</h3>';
@@ -316,7 +414,6 @@ const Optimizer = {
             </div>
           </div>
       `;
-      // Cost by project bars
       const cbp = cf.cost_by_project || [];
       if (cbp.length > 0) {
         const maxCost = cbp[0].cost || 1;
@@ -333,7 +430,6 @@ const Optimizer = {
         });
         html += '</div>';
       }
-      // Cost by model
       const cbm = cf.cost_by_model || [];
       if (cbm.length > 0) {
         html += '<div class="cf-models">';
@@ -348,7 +444,6 @@ const Optimizer = {
         });
         html += '</div>';
       }
-      // Saving opportunity
       if (cf.estimated_waste > 1) {
         html += `<div class="cf-saving">Reducing marathon sessions could save ~$${cf.estimated_waste.toFixed(2)}/period</div>`;
       }
@@ -379,7 +474,6 @@ const Optimizer = {
             </div>
           </div>
       `;
-      // Distribution bar
       if (total > 0) {
         const cmdPct = (pld.commands_under_20 / total * 100).toFixed(1);
         const shortPct = (pld.short_20_100 / total * 100).toFixed(1);
@@ -400,7 +494,6 @@ const Optimizer = {
           </div>
         `;
       }
-      // Slash commands
       const sc = pa.slash_commands || {};
       const scKeys = Object.keys(sc);
       if (scKeys.length > 0) {
@@ -414,7 +507,7 @@ const Optimizer = {
     }
 
     // Grade cards
-    if (data.grades) {
+    if (data.grades && Object.keys(data.grades).length > 0) {
       html += '<div class="grades-grid">';
       const gradeNames = {
         cache_efficiency: 'Cache Efficiency',
@@ -456,7 +549,7 @@ const Optimizer = {
       html += '</div>';
     }
 
-    // Missing features (with evidence)
+    // Missing features
     if (data.missing_features && data.missing_features.length > 0) {
       html += '<div class="missing-section"><h3>Features You\'re Not Using</h3>';
       data.missing_features.forEach(f => {
@@ -502,7 +595,7 @@ const Optimizer = {
     }
 
     // Workflow vision
-    if (data.workflow) {
+    if (data.workflow && data.workflow.current) {
       html += `<div class="workflow-section">
         <h3>Workflow Assessment</h3>
         <div class="workflow-grid">
@@ -528,7 +621,7 @@ const Optimizer = {
       sources.forEach(s => {
         const urlMatch = s.match(/(https?:\/\/[^\s]+)/);
         if (urlMatch) {
-          const label = s.replace(urlMatch[0], '').replace(/\s*—\s*$/, '').replace(/\s*-\s*$/, '').trim();
+          const label = s.replace(urlMatch[0], '').replace(/\s*[—-]\s*$/, '').trim();
           html += `<li><a href="${urlMatch[0]}" target="_blank" rel="noopener">${label || urlMatch[0]}</a></li>`;
         } else {
           html += `<li>${s}</li>`;
@@ -539,7 +632,8 @@ const Optimizer = {
 
     // No recommendations = good!
     if ((!data.recommendations || data.recommendations.length === 0) &&
-        (!data.missing_features || data.missing_features.length === 0)) {
+        (!data.missing_features || data.missing_features.length === 0) &&
+        (!data.anti_patterns || data.anti_patterns.length === 0)) {
       html += `<div style="text-align:center;padding:24px;color:var(--neon-green);">
         No issues detected — you're using your tools well!
       </div>`;
@@ -558,10 +652,12 @@ const Optimizer = {
 
 document.addEventListener('DOMContentLoaded', () => {
   Optimizer.init();
+  // Restore cached results from sessionStorage
   try {
     const cached = sessionStorage.getItem('agenttop-optimizer');
     if (cached) {
       Optimizer._cached = JSON.parse(cached);
+      Optimizer._updateHandle();
     }
-  } catch(e) {}
+  } catch(e) { console.warn('Failed to restore cached optimizer results:', e); }
 });

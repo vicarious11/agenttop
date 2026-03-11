@@ -97,6 +97,7 @@ def get_completion(
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": max_tokens,
+            "timeout": 60,
         }
         if api_key:
             kwargs["api_key"] = api_key
@@ -108,7 +109,18 @@ def get_completion(
     except ImportError:
         return "[error] litellm not installed. Run: pip install litellm"
     except Exception as e:
-        return f"[error] LLM call failed: {e}"
+        # Provide actionable error messages based on error type
+        err_type = type(e).__name__
+        err_str = str(e)
+        if "AuthenticationError" in err_type or "401" in err_str:
+            return f"[error] API key invalid or expired. Check {config.api_key_env}."
+        if "RateLimitError" in err_type or "429" in err_str:
+            return "[error] Rate limited by LLM provider. Wait a moment and retry."
+        if "APIConnectionError" in err_type or "Connection" in err_type:
+            return "[error] Could not reach LLM provider. Check your network."
+        if "Timeout" in err_type:
+            return "[error] LLM request timed out. Try again or use a smaller model."
+        return f"[error] LLM call failed ({err_type}): {e}"
 
 
 def is_llm_configured(config: LLMConfig) -> bool:
