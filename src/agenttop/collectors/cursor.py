@@ -1,14 +1,24 @@
 """Cursor IDE data collector.
 
-Parses data from ~/.cursor/ai-tracking/ai-code-tracking.db:
-- ai_code_hashes — AI-generated code (hash, model, file, timestamp)
-- scored_commits — AI vs human lines per commit
-- conversation_summaries — title, TLDR, model, mode per conversation
+Reads data from ~/.cursor/ai-tracking/ai-code-tracking.db using ALL tables:
+
+1. ai_code_hashes — AI-generated code per file (hash, model, source, file, conversation)
+2. conversation_summaries — conversation metadata (title, TLDR, model, mode)
+3. scored_commits — AI vs human lines per commit (tab, composer, human)
+4. tracked_file_content — full file content tracked by Cursor
+5. ai_deleted_files — files deleted by AI
+
+Token estimation strategy (Cursor doesn't expose real token counts):
+- Composer interactions: ~800 tokens per code hash (prompt + generated code)
+- Tab completions: ~150 tokens per code hash (inline suggestions)
+- Conversations with no code hashes: ~2000 tokens (chat-only)
+These are conservative estimates based on typical Cursor usage patterns.
 """
 
 from __future__ import annotations
 
 import sqlite3
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -16,11 +26,25 @@ from agenttop.collectors.base import BaseCollector
 from agenttop.config import CURSOR_DIR
 from agenttop.models import Event, Session, ToolName, ToolStats
 
-TOKENS_PER_CONVERSATION_ESTIMATE = 2000
-COST_PER_TOKEN = 0.000003  # Cursor uses mostly cheaper models
+# Token estimates by source type (Cursor doesn't store real token counts)
+_TOKENS_COMPOSER = 800       # composer generates larger code blocks
+_TOKENS_TAB = 150            # tab completions are small inline suggestions
+_TOKENS_CHAT_ONLY = 2000     # conversation with no tracked code output
+
+# Model-specific cost per token (USD)
+_COST_PER_TOKEN: dict[str, float] = {
+    "claude-4.6-opus-high-thinking": 0.000075,  # premium model
+    "claude-4.6-opus": 0.000060,
+    "claude-3.5-sonnet": 0.000015,
+    "gpt-4o": 0.000010,
+    "gpt-4o-mini": 0.000001,
+    "default": 0.000003,  # Cursor's default model (likely gpt-4o-mini)
+}
 
 # Directories that are containers, not project names
-_CONTAINER_DIRS = {"repo", "repos", "desktop", "projects", "dev", "src", "code", "work", "documents"}
+_CONTAINER_DIRS = {
+    "repo", "repos", "desktop", "projects", "dev", "src", "code", "work", "documents",
+}
 
 
 def _extract_project(filepath: str) -> str | None:
@@ -37,14 +61,28 @@ def _extract_project(filepath: str) -> str | None:
     rel = filepath[len(home) + 1:] if filepath.startswith(home + "/") else filepath.lstrip("/")
     parts = rel.split("/")
 
-    # Skip container directories to find the real project name
     for i, part in enumerate(parts):
         if part.lower() not in _CONTAINER_DIRS:
-            # Don't return if it looks like a file (has extension) with no subdirectory
             if "." in part and i == len(parts) - 1:
                 return None
             return part
     return None
+
+
+def _estimate_tokens(source: str) -> int:
+    """Estimate tokens for a single code hash based on its source type."""
+    if source == "composer":
+        return _TOKENS_COMPOSER
+    if source == "tab":
+        return _TOKENS_TAB
+    # Unknown source — use composer estimate as safe default
+    return _TOKENS_COMPOSER
+
+
+def _cost_for_tokens(tokens: int, model: str) -> float:
+    """Compute estimated cost for a token count and model."""
+    rate = _COST_PER_TOKEN.get(model, _COST_PER_TOKEN["default"])
+    return tokens * rate
 
 
 class CursorCollector(BaseCollector):
@@ -66,50 +104,35 @@ class CursorCollector(BaseCollector):
         conn.row_factory = sqlite3.Row
         return conn
 
-    # -- Conversations --
+    def _query(self, sql: str, params: tuple = ()) -> list[dict]:
+        """Execute a query and return rows as dicts. Returns [] on error."""
+        try:
+            conn = self._connect()
+            rows = conn.execute(sql, params).fetchall()
+            conn.close()
+            return [dict(r) for r in rows]
+        except (sqlite3.Error, OSError):
+            return []
+
+    # -- Data access --
 
     def _get_conversations(self, since_ms: int = 0) -> list[dict]:
-        """Fetch conversation summaries from Cursor DB."""
-        try:
-            conn = self._connect()
-            rows = conn.execute(
-                "SELECT * FROM conversation_summaries WHERE updatedAt >= ? ORDER BY updatedAt DESC",
-                (since_ms,),
-            ).fetchall()
-            conn.close()
-            return [dict(r) for r in rows]
-        except (sqlite3.Error, OSError):
-            return []
-
-    # -- AI code hashes --
+        return self._query(
+            "SELECT * FROM conversation_summaries WHERE updatedAt >= ? ORDER BY updatedAt DESC",
+            (since_ms,),
+        )
 
     def _get_ai_code_hashes(self, since_ms: int = 0) -> list[dict]:
-        """Fetch AI-generated code records."""
-        try:
-            conn = self._connect()
-            rows = conn.execute(
-                "SELECT * FROM ai_code_hashes WHERE createdAt >= ? ORDER BY createdAt DESC",
-                (since_ms,),
-            ).fetchall()
-            conn.close()
-            return [dict(r) for r in rows]
-        except (sqlite3.Error, OSError):
-            return []
-
-    # -- Scored commits --
+        return self._query(
+            "SELECT * FROM ai_code_hashes WHERE createdAt >= ? ORDER BY createdAt DESC",
+            (since_ms,),
+        )
 
     def _get_scored_commits(self, since_ms: int = 0) -> list[dict]:
-        """Fetch commit scores (AI vs human lines)."""
-        try:
-            conn = self._connect()
-            rows = conn.execute(
-                "SELECT * FROM scored_commits WHERE scoredAt >= ? ORDER BY scoredAt DESC",
-                (since_ms,),
-            ).fetchall()
-            conn.close()
-            return [dict(r) for r in rows]
-        except (sqlite3.Error, OSError):
-            return []
+        return self._query(
+            "SELECT * FROM scored_commits WHERE scoredAt >= ? ORDER BY scoredAt DESC",
+            (since_ms,),
+        )
 
     # -- BaseCollector interface --
 
@@ -120,78 +143,108 @@ class CursorCollector(BaseCollector):
             ts_ms = code.get("createdAt") or code.get("timestamp") or 0
             if not ts_ms:
                 continue
+            source = code.get("source", "")
+            model = code.get("model", "")
+            tokens = _estimate_tokens(source)
             events.append(
                 Event(
                     tool=ToolName.CURSOR,
                     event_type="ai_code",
                     timestamp=datetime.fromtimestamp(ts_ms / 1000),
                     session_id=code.get("conversationId"),
+                    project=_extract_project(code.get("fileName", "")),
+                    token_count=tokens,
+                    cost_usd=_cost_for_tokens(tokens, model),
                     data={
-                        "source": code.get("source", ""),
+                        "source": source,
                         "file": code.get("fileName", ""),
-                        "model": code.get("model", ""),
+                        "model": model,
                     },
                 )
             )
         return events
 
     def collect_sessions(self) -> list[Session]:
-        """Build sessions from conversation summaries and ai_code_hashes.
+        """Build sessions by merging conversation_summaries with ai_code_hashes.
 
-        Uses conversation_summaries when available, otherwise groups
-        ai_code_hashes by conversationId and extracts project from file paths.
+        Groups code hashes by conversationId, enriches with conversation metadata
+        (title, TLDR) when available, and estimates tokens by source type.
         """
-        sessions = []
-
-        # Try conversation summaries first
+        # Index conversation summaries by ID
+        conv_by_id: dict[str, dict] = {}
         for conv in self._get_conversations():
-            updated_ms = conv.get("updatedAt", 0)
-            if not updated_ms:
-                continue
-            ts = datetime.fromtimestamp(updated_ms / 1000)
-            sessions.append(
-                Session(
-                    id=conv.get("conversationId", "unknown"),
-                    tool=ToolName.CURSOR,
-                    start_time=ts,
-                    end_time=ts,
-                    message_count=1,
-                    total_tokens=TOKENS_PER_CONVERSATION_ESTIMATE,
-                    estimated_cost_usd=TOKENS_PER_CONVERSATION_ESTIMATE * COST_PER_TOKEN,
-                    prompts=[conv.get("title", ""), conv.get("tldr", "")],
-                )
-            )
+            cid = conv.get("conversationId", "")
+            if cid:
+                conv_by_id[cid] = conv
 
-        if sessions:
-            return sessions
-
-        # Fallback: build sessions from ai_code_hashes grouped by conversationId
-        return self._sessions_from_code_hashes()
-
-    def _sessions_from_code_hashes(self) -> list[Session]:
-        """Build sessions from ai_code_hashes, extracting project from file paths."""
-        groups: dict[str, list[dict]] = {}
+        # Group code hashes by conversationId
+        hash_groups: dict[str, list[dict]] = defaultdict(list)
         for code in self._get_ai_code_hashes():
             cid = code.get("conversationId") or "unknown"
-            groups.setdefault(cid, []).append(code)
+            hash_groups[cid].append(code)
+
+        # All conversation IDs (union of both sources)
+        all_ids = set(conv_by_id.keys()) | set(hash_groups.keys())
 
         sessions = []
-        for cid, entries in groups.items():
+        for cid in all_ids:
+            entries = hash_groups.get(cid, [])
+            conv = conv_by_id.get(cid)
+
+            # Compute timestamps from code hashes
             timestamps = []
-            project = None
+            projects: Counter[str] = Counter()
+            models: Counter[str] = Counter()
+            total_tokens = 0
+            total_cost = 0.0
+
             for entry in entries:
                 ts_ms = entry.get("createdAt") or entry.get("timestamp") or 0
                 if ts_ms:
                     timestamps.append(datetime.fromtimestamp(ts_ms / 1000))
-                if not project:
-                    project = _extract_project(entry.get("fileName", ""))
+
+                source = entry.get("source", "")
+                model = entry.get("model", "default")
+                tokens = _estimate_tokens(source)
+                total_tokens += tokens
+                total_cost += _cost_for_tokens(tokens, model)
+
+                proj = _extract_project(entry.get("fileName", ""))
+                if proj:
+                    projects[proj] += 1
+                if model:
+                    models[model] += 1
+
+            # Use conversation updatedAt as fallback timestamp
+            if conv and not timestamps:
+                updated_ms = conv.get("updatedAt", 0)
+                if updated_ms:
+                    timestamps.append(datetime.fromtimestamp(updated_ms / 1000))
+                total_tokens = _TOKENS_CHAT_ONLY
+                total_cost = _cost_for_tokens(
+                    _TOKENS_CHAT_ONLY,
+                    conv.get("model", "default"),
+                )
 
             if not timestamps:
                 continue
+
             start = min(timestamps)
             end = max(timestamps)
-            msg_count = len(entries)
-            tokens = msg_count * TOKENS_PER_CONVERSATION_ESTIMATE
+
+            # Build prompts from conversation metadata
+            prompts: list[str] = []
+            if conv:
+                title = conv.get("title", "")
+                tldr = conv.get("tldr", "")
+                if title:
+                    prompts.append(title)
+                if tldr:
+                    prompts.append(tldr)
+
+            # Pick the most common project
+            project = projects.most_common(1)[0][0] if projects else None
+
             sessions.append(
                 Session(
                     id=cid,
@@ -199,11 +252,13 @@ class CursorCollector(BaseCollector):
                     project=project,
                     start_time=start,
                     end_time=end,
-                    message_count=msg_count,
-                    total_tokens=tokens,
-                    estimated_cost_usd=tokens * COST_PER_TOKEN,
+                    message_count=max(len(entries), 1),
+                    total_tokens=total_tokens,
+                    estimated_cost_usd=total_cost,
+                    prompts=prompts,
                 )
             )
+
         return sessions
 
     def get_stats(self, days: int = 0) -> ToolStats:
@@ -222,19 +277,40 @@ class CursorCollector(BaseCollector):
         convs = self._get_conversations(since_ms=since_ms)
         codes = self._get_ai_code_hashes(since_ms=since_ms)
 
-        stats.sessions_today = len(convs)
+        # Count unique conversations from code hashes
+        conv_ids_from_hashes = {c.get("conversationId") for c in codes if c.get("conversationId")}
+        conv_ids_from_summaries = {c.get("conversationId") for c in convs}
+        unique_sessions = conv_ids_from_hashes | conv_ids_from_summaries
+
+        stats.sessions_today = len(unique_sessions)
         stats.messages_today = len(codes)
         stats.tool_calls_today = len(codes)
-        stats.tokens_today = len(convs) * TOKENS_PER_CONVERSATION_ESTIMATE
-        stats.estimated_cost_today = stats.tokens_today * COST_PER_TOKEN
 
-        # Build hourly distribution from code hashes
+        # Estimate tokens from actual code hashes (not flat per-conversation)
+        total_tokens = 0
+        total_cost = 0.0
         hourly = [0] * 24
-        for code in self._get_ai_code_hashes(since_ms=since_ms):
+
+        for code in codes:
+            source = code.get("source", "")
+            model = code.get("model", "default")
+            tokens = _estimate_tokens(source)
+            total_tokens += tokens
+            total_cost += _cost_for_tokens(tokens, model)
+
             ts_ms = code.get("createdAt", 0)
             if ts_ms:
                 hour = datetime.fromtimestamp(ts_ms / 1000).hour
-                hourly[hour] += TOKENS_PER_CONVERSATION_ESTIMATE // 10
+                hourly[hour] += tokens
+
+        # Add estimated tokens for chat-only conversations (no code hashes)
+        chat_only_convs = conv_ids_from_summaries - conv_ids_from_hashes
+        for _ in chat_only_convs:
+            total_tokens += _TOKENS_CHAT_ONLY
+            total_cost += _cost_for_tokens(_TOKENS_CHAT_ONLY, "default")
+
+        stats.tokens_today = total_tokens
+        stats.estimated_cost_today = total_cost
         stats.hourly_tokens = hourly
 
         if codes or convs:
