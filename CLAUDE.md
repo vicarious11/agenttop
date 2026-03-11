@@ -53,7 +53,7 @@ pytest
 
 ## Key Design Decisions
 - **No frameworks on frontend** — vanilla JS + D3 for the graph, keeps it fast and dependency-free
-- **LLM-required optimizer** — setup guarantees a working LLM (Ollama auto-installed/pulled, or cloud provider verified). Python computes deterministic metrics; LLM adds intelligent analysis
+- **LLM-required optimizer** — setup guarantees a working LLM (Ollama auto-installed/pulled with `gemma3:4b` by default, or cloud provider verified). Python computes deterministic metrics; LLM adds intelligent analysis. Default model chosen for reliable structured JSON output and litellm compatibility (no thinking mode issues)
 - **Knowledge base in code** — `KNOWLEDGE_BASE` dict in optimizer.py contains per-tool best practices sourced from official docs
 - **Real data only** — optimizer never guesses; every recommendation is backed by actual usage metrics from the profile
 
