@@ -315,11 +315,25 @@ def _install_ollama() -> str | None:
     elif system == "Linux":
         click.echo("  Installing Ollama...")
         try:
+            import tempfile
+            from pathlib import Path as _Path
+
+            # Download script to temp file first for reviewability/safety
+            fd, tmp_path = tempfile.mkstemp(suffix=".sh")
+            os.close(fd)
+            script_path = _Path(tmp_path)
             subprocess.run(
-                ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
+                ["curl", "-fsSL", "-o", str(script_path),
+                 "https://ollama.com/install.sh"],
+                check=True,
+                timeout=30,
+            )
+            subprocess.run(
+                ["sh", str(script_path)],
                 check=True,
                 timeout=120,
             )
+            script_path.unlink(missing_ok=True)
             ollama_bin = shutil.which("ollama")
             if ollama_bin:
                 click.echo(click.style(
@@ -349,7 +363,7 @@ def _install_ollama() -> str | None:
 
 
 def _ensure_ollama(
-    model: str = "qwen3:1.7b",
+    model: str = "gemma3:4b",
     base_url: str = "http://localhost:11434",
 ) -> None:
     """Full Ollama setup: install, start server, pull model.

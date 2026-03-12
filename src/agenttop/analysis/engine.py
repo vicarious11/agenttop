@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import urllib.request
 
 from agenttop.config import LLMConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _is_ollama(config: LLMConfig) -> bool:
@@ -97,6 +100,7 @@ def get_completion(
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": max_tokens,
+            "timeout": 60,
         }
         if api_key:
             kwargs["api_key"] = api_key
@@ -106,8 +110,10 @@ def get_completion(
         response = litellm.completion(**kwargs)
         return response.choices[0].message.content or ""
     except ImportError:
+        logger.warning("litellm not installed")
         return "[error] litellm not installed. Run: pip install litellm"
     except Exception as e:
+        logger.error("LLM call failed (%s/%s): %s", config.provider, config.model, e)
         return f"[error] LLM call failed: {e}"
 
 
@@ -127,11 +133,12 @@ def check_llm_available(config: LLMConfig) -> str:
             req = urllib.request.Request(base_url, method="GET")
             with urllib.request.urlopen(req, timeout=2):
                 return ""
-        except Exception:
+        except Exception as e:
+            logger.debug("Ollama check failed (%s): %s", base_url, e)
             return (
                 "Ollama is not running. To enable AI-powered analysis:\n\n"
                 "  brew install ollama\n"
-                "  ollama pull llama3.2\n"
+                "  ollama pull gemma3:4b\n"
                 "  ollama serve\n\n"
                 "Then refresh this view."
             )
