@@ -237,6 +237,49 @@ UNIVERSAL_PRACTICES = [
 # Python handles all deterministic computation; LLM adds intelligence.
 # ---------------------------------------------------------------------------
 
+
+def _extract_json(text: str) -> dict | None:
+    """Extract the first valid JSON object from an LLM response.
+
+    Handles:
+    - Raw JSON
+    - ```json ... ``` or ``` ... ``` fences
+    - JSON embedded anywhere in the response
+    """
+    import re as _re
+
+    text = text.strip()
+    # Try raw parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Strip code fences: ```json\n...\n``` or ```\n...\n```
+    fence_match = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, _re.DOTALL)
+    if fence_match:
+        try:
+            return json.loads(fence_match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # Find the first { ... } spanning the whole embedded JSON object
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        for i, ch in enumerate(text[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start : i + 1])
+                    except json.JSONDecodeError:
+                        break
+    return None
+
+
 OPTIMIZER_PROMPT = """\
 You are an expert AI coding tool optimizer. Analyze the structured usage data \
 below and provide intelligent analysis.
@@ -966,35 +1009,29 @@ class AIUsageOptimizer:
 
         prompt = OPTIMIZER_PROMPT.format(input_json=input_json)
 
-        raw = get_completion(
-            prompt,
-            self._config.llm,
-            system=(
-                "You are an expert AI coding tool optimizer. "
-                "Analyze the structured usage data and return ONLY valid JSON. "
-                "No markdown fences, no explanation — just the JSON object."
-            ),
-            max_tokens=4000,
+        system_msg = (
+            "You are an expert AI coding tool optimizer. "
+            "Analyze the structured usage data and return ONLY valid JSON. "
+            "No markdown fences, no explanation — just the JSON object."
         )
 
-        if raw.startswith("[error]"):
-            return {"error": raw, "source": "error"}
+        last_err: str = ""
+        for _attempt in range(3):
+            raw = get_completion(prompt, self._config.llm, system=system_msg, max_tokens=4000)
 
-        try:
-            cleaned = raw.strip()
-            # Strip markdown code fences if present
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1]
-            if cleaned.endswith("```"):
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned.strip())
-            parsed["source"] = "llm"
-            return parsed
-        except (json.JSONDecodeError, IndexError, KeyError):
-            return {
-                "error": "LLM returned invalid JSON. Try again or switch models.",
-                "source": "error",
-            }
+            if raw.startswith("[error]"):
+                return {"error": raw, "source": "error"}
+
+            parsed = _extract_json(raw)
+            if parsed is not None:
+                parsed["source"] = "llm"
+                return parsed
+            last_err = f"attempt {_attempt + 1}: could not extract JSON from response"
+
+        return {
+            "error": f"LLM returned invalid JSON after 3 attempts. Try switching models. ({last_err})",
+            "source": "error",
+        }
 
     def _merge_results(
         self,

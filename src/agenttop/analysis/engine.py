@@ -7,6 +7,17 @@ import urllib.request
 
 from agenttop.config import LLMConfig
 
+# Import litellm at module level so it initialises its httpx/asyncio internals
+# in the main thread.  Lazy import inside get_completion (called via
+# run_in_executor) can collide with the running event loop and raise
+# APIConnectionError even when the provider is reachable.
+try:
+    import litellm as _litellm
+    _LITELLM_AVAILABLE = True
+except ImportError:
+    _litellm = None  # type: ignore[assignment]
+    _LITELLM_AVAILABLE = False
+
 
 def _is_ollama(config: LLMConfig) -> bool:
     """Check if the provider is Ollama."""
@@ -50,39 +61,9 @@ def get_completion(
 
     Returns the response text, or an error message if the call fails.
     """
+    if not _LITELLM_AVAILABLE:
+        return "[error] litellm not installed. Run: pip install litellm"
     try:
-        # Workaround: tiktoken on Python 3.14 raises
-        # "Duplicate encoding name" because plugin modules are
-        # discovered twice.  Patch _find_constructors to silently
-        # overwrite duplicates instead of raising.
-        try:
-            import tiktoken.registry as _tr
-
-            _orig_find = _tr._find_constructors
-
-            def _tolerant_find() -> None:
-                import importlib as _imp
-
-                with _tr._lock:
-                    if _tr.ENCODING_CONSTRUCTORS is not None:
-                        return
-                    _tr.ENCODING_CONSTRUCTORS = {}
-                    try:
-                        for mod_name in _tr._available_plugin_modules():
-                            mod = _imp.import_module(mod_name)
-                            constructors = getattr(mod, "ENCODING_CONSTRUCTORS", {})
-                            for enc_name, constructor in constructors.items():
-                                _tr.ENCODING_CONSTRUCTORS[enc_name] = constructor
-                    except Exception:
-                        _tr.ENCODING_CONSTRUCTORS = None
-                        raise
-
-            _tr._find_constructors = _tolerant_find
-        except Exception:
-            pass
-
-        import litellm
-
         api_key, base_url = _resolve_config(config)
 
         # Ollama needs a non-empty api_key for litellm and its own base_url
@@ -104,10 +85,8 @@ def get_completion(
         if base_url:
             kwargs["api_base"] = base_url
 
-        response = litellm.completion(**kwargs)
+        response = _litellm.completion(**kwargs)
         return response.choices[0].message.content or ""
-    except ImportError:
-        return "[error] litellm not installed. Run: pip install litellm"
     except Exception as e:
         # Provide actionable error messages based on error type
         err_type = type(e).__name__

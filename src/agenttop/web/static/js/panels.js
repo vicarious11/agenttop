@@ -2,17 +2,23 @@
 
 const Panels = {
   MODEL_PRICING: {
-    opus:   { input: 15,   output: 75,  cache: 1.875 },
-    sonnet: { input: 3,    output: 15,  cache: 0.30  },
-    haiku:  { input: 0.80, output: 4,   cache: 0.08  },
-    glm:    { input: 1,    output: 2,   cache: 0.5   },
+    opus:           { input: 15,   output: 75,  cache: 1.875 },
+    sonnet:         { input: 3,    output: 15,  cache: 0.30  },
+    haiku:          { input: 0.80, output: 4,   cache: 0.08  },
+    glm:            { input: 1,    output: 2,   cache: 0.5   },
+    cursor_agent:   { input: 3,    output: 15,  cache: 0.30  },
+    cursor_chat:    { input: 0.80, output: 4,   cache: 0.08  },
+    copilot:        { input: 0,    output: 0,   cache: 0     },
   },
 
   MODEL_COLORS: {
-    opus:   '#ff6b00',
-    sonnet: '#ff9944',
-    haiku:  '#ffcc88',
-    glm:    '#00ff88',
+    opus:         '#ff6b00',
+    sonnet:       '#ff9944',
+    haiku:        '#ffcc88',
+    glm:          '#00ff88',
+    cursor_agent: '#00d4ff',
+    cursor_chat:  '#66e8ff',
+    copilot:      '#8b5cf6',
   },
 
   modelDisplayName(id) {
@@ -23,19 +29,30 @@ const Panels = {
       const match = rest.match(/^(\d+)[.-](\d+)/);
       return match ? `${match[1]}.${match[2]}` : '';
     };
-    if (mid.includes('opus'))   { const v = extractVer(mid, 'opus');   return v ? `Opus ${v}` : 'Opus'; }
-    if (mid.includes('sonnet')) { const v = extractVer(mid, 'sonnet'); return v ? `Sonnet ${v}` : 'Sonnet'; }
-    if (mid.includes('haiku'))  { const v = extractVer(mid, 'haiku');  return v ? `Haiku ${v}` : 'Haiku'; }
-    if (mid.includes('glm'))    { const m2 = mid.match(/glm[- ]?(\d+\.?\d*)/); return m2 ? `GLM ${m2[1]}` : 'GLM'; }
+    if (mid.includes('opus'))         { const v = extractVer(mid, 'opus');   return v ? `Opus ${v}` : 'Opus'; }
+    if (mid.includes('sonnet'))       { const v = extractVer(mid, 'sonnet'); return v ? `Sonnet ${v}` : 'Sonnet'; }
+    if (mid.includes('haiku'))        { const v = extractVer(mid, 'haiku');  return v ? `Haiku ${v}` : 'Haiku'; }
+    if (mid.includes('glm'))          { const m2 = mid.match(/glm[- ]?(\d+\.?\d*)/); return m2 ? `GLM ${m2[1]}` : 'GLM'; }
+    if (mid === 'cursor-agent')       return 'Cursor Agent';
+    if (mid === 'cursor-chat')        return 'Cursor Chat';
+    if (mid.startsWith('cursor'))     return 'Cursor';
+    if (mid.includes('copilot'))      return 'Copilot';
+    if (mid.includes('gpt-4'))        return mid.includes('mini') ? 'GPT-4o mini' : 'GPT-4o';
+    if (mid.includes('gemini'))       { const m2 = mid.match(/gemini[- ]?([a-z0-9.]+)/); return m2 ? `Gemini ${m2[1]}` : 'Gemini'; }
+    if (mid === '<synthetic>')        return 'Internal / Synthetic';
     return id;
   },
 
   getModelFamily(id) {
     const mid = id.toLowerCase();
-    if (mid.includes('opus'))   return 'opus';
-    if (mid.includes('sonnet')) return 'sonnet';
-    if (mid.includes('haiku'))  return 'haiku';
-    if (mid.includes('glm'))    return 'glm';
+    if (mid.includes('opus'))         return 'opus';
+    if (mid.includes('sonnet'))       return 'sonnet';
+    if (mid.includes('haiku'))        return 'haiku';
+    if (mid.includes('glm'))          return 'glm';
+    if (mid === 'cursor-agent')       return 'cursor_agent';
+    if (mid.startsWith('cursor'))     return 'cursor_chat';
+    if (mid.includes('copilot'))      return 'copilot';
+    if (mid.includes('gpt'))          return 'cursor_chat';   // GPT-based Cursor models
     return 'sonnet';
   },
 
@@ -63,7 +80,7 @@ const Panels = {
       const cost   = Panels.estimateCost(id, input, output, cache);
       const color  = Panels.MODEL_COLORS[Panels.getModelFamily(id)] || '#ff9944';
       return { id, name: Panels.modelDisplayName(id), input, output, cache, total, cost, color };
-    }).filter(m => m.total > 0).sort((a, b) => b.total - a.total);
+    }).filter(m => m.total > 0 && !m.id.includes('synthetic')).sort((a, b) => b.total - a.total);
 
     if (models.length === 0) {
       el.innerHTML = '<div class="panel-empty">No model activity</div>';
@@ -150,7 +167,9 @@ const Panels = {
     }
 
     if (badge) badge.textContent = `${sessions.length} total`;
-    const top = sessions.slice(0, 20);
+    // Only show sessions with a known project name
+    const filtered = sessions.filter(s => s.project && s.project !== 'unknown');
+    const top = filtered.slice(0, 20);
 
     el.innerHTML = `
       <div class="sessions-list">

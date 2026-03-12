@@ -22,6 +22,15 @@ from agenttop.collectors.kiro import KiroCollector
 from agenttop.config import Config, load_config
 from agenttop.web.graph_builder import GraphBuilder
 
+# Pre-import litellm in the main thread so it initialises its httpx/asyncio
+# machinery before any run_in_executor calls.  Without this, the first import
+# inside a worker thread can collide with the running event loop and raise
+# APIConnectionError even when the LLM provider is reachable.
+try:
+    import litellm as _litellm  # noqa: F401
+except ImportError:
+    pass
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="agenttop", docs_url=None, redoc_url=None)
@@ -106,17 +115,39 @@ def api_sessions(days: int = 7) -> JSONResponse:
 @app.get("/api/models")
 def api_models() -> JSONResponse:
     _init()
-    if _claude and _claude.is_available():
-        return JSONResponse(_claude.get_model_usage())
-    return JSONResponse({})
+    combined: dict[str, Any] = {}
+    for name, collector in _collectors:
+        if not collector.is_available():
+            continue
+        if hasattr(collector, "get_model_usage"):
+            for model, usage in collector.get_model_usage().items():
+                if model in combined:
+                    for k, v in usage.items():
+                        combined[model][k] = combined[model].get(k, 0) + v
+                else:
+                    combined[model] = dict(usage)
+    return JSONResponse(combined)
 
 
 @app.get("/api/hours")
 def api_hours() -> JSONResponse:
     _init()
+    # Aggregate hourly token distribution from all active collectors
+    combined: dict[str, int] = {}
+    for name, collector in _collectors:
+        if not collector.is_available():
+            continue
+        # Use per-collector hourly_tokens from get_stats
+        s = collector.get_stats(days=0)
+        for hour, tokens in enumerate(s.hourly_tokens):
+            if tokens > 0:
+                key = str(hour)
+                combined[key] = combined.get(key, 0) + tokens
+    # Also include Claude's native hourCounts (richer granularity when available)
     if _claude and _claude.is_available():
-        return JSONResponse(_claude.get_hour_counts())
-    return JSONResponse({})
+        for hour_str, count in _claude.get_hour_counts().items():
+            combined[hour_str] = combined.get(hour_str, 0) + count
+    return JSONResponse(combined)
 
 
 class OptimizeRequest(BaseModel):
