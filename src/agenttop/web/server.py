@@ -37,7 +37,9 @@ _config: Config | None = None
 _collectors: list[tuple[str, BaseCollector]] = []
 _claude: ClaudeCodeCollector | None = None
 _cached_optimize: dict[str, Any] | None = None
+_cached_optimize_time: float = 0.0
 _optimize_running = False
+_CACHE_TTL_SECONDS = 300  # 5-minute cache TTL
 
 
 def _init() -> None:
@@ -111,11 +113,18 @@ def api_models() -> JSONResponse:
 
 
 @app.get("/api/hours")
-def api_hours() -> JSONResponse:
+def api_hours(days: int = 0) -> JSONResponse:
+    """Aggregate hourly token counts from ALL available tools."""
     _init()
-    if _claude and _claude.is_available():
-        return JSONResponse(_claude.get_hour_counts())
-    return JSONResponse({})
+    merged: dict[str, int] = {}
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        stats = collector.get_stats(days=days)
+        for hour, tokens in enumerate(stats.hourly_tokens):
+            if tokens > 0:
+                merged[str(hour)] = merged.get(str(hour), 0) + tokens
+    return JSONResponse(merged)
 
 
 class OptimizeRequest(BaseModel):
@@ -129,30 +138,37 @@ def _run_optimize(days: int = 0) -> dict[str, Any]:
 
     stats = _get_all_stats(days)
     sessions = []
+    feature_configs: dict[str, Any] = {}
     for _, collector in _collectors:
         if collector.is_available():
             sessions.extend(collector.collect_sessions())
+            fc = collector.get_feature_config()
+            if fc:
+                tool_id = collector.tool_name.value
+                feature_configs[tool_id] = fc
     model_usage = {}
     if _claude and _claude.is_available():
         model_usage = _claude.get_model_usage()
 
     optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
-    return optimizer.analyze(stats, sessions, model_usage)
+    return optimizer.analyze(stats, sessions, model_usage, feature_configs)
 
 
 @app.on_event("startup")
 async def _precompute_optimize() -> None:
     """Run LLM analysis at boot so the optimizer is instant."""
-    global _cached_optimize, _optimize_running
+    global _cached_optimize, _cached_optimize_time, _optimize_running
+    import time
 
     async def _bg() -> None:
-        global _cached_optimize, _optimize_running
+        global _cached_optimize, _cached_optimize_time, _optimize_running
         _optimize_running = True
         try:
             result = await asyncio.get_event_loop().run_in_executor(
                 None, _run_optimize,
             )
             _cached_optimize = result
+            _cached_optimize_time = time.time()
         except Exception:
             pass
         finally:
@@ -163,13 +179,20 @@ async def _precompute_optimize() -> None:
 
 @app.post("/api/optimize")
 async def api_optimize(req: OptimizeRequest) -> JSONResponse:
-    global _cached_optimize
+    global _cached_optimize, _cached_optimize_time
+    import time
 
-    # Return cached result for default (days=0) if available and not an error
-    if req.days == 0 and _cached_optimize is not None and "error" not in _cached_optimize:
+    # Return cached result if fresh (within TTL) and not an error
+    cache_age = time.time() - _cached_optimize_time
+    if (
+        req.days == 0
+        and _cached_optimize is not None
+        and "error" not in _cached_optimize
+        and cache_age < _CACHE_TTL_SECONDS
+    ):
         return JSONResponse(_cached_optimize)
 
-    # Run fresh analysis (retries if previous result was an error)
+    # Run fresh analysis (retries if previous result was an error or cache expired)
     try:
         result = await asyncio.get_event_loop().run_in_executor(
             None, _run_optimize, req.days,
@@ -181,6 +204,7 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
         })
     if req.days == 0 and "error" not in result:
         _cached_optimize = result
+        _cached_optimize_time = time.time()
     return JSONResponse(result)
 
 

@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from agenttop.collectors.base import BaseCollector
+from agenttop.collectors.claude_features import detect_all_features
 from agenttop.config import CLAUDE_DIR
 from agenttop.models import Event, Session, ToolName, ToolStats
 
@@ -763,6 +764,10 @@ class ClaudeCodeCollector(BaseCollector):
         daily = self._parse_stats_cache()
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         return [d for d in daily if d.get("date", "") >= cutoff]
+
+    def get_feature_config(self) -> dict[str, Any]:
+        """Detect which Claude Code features are configured on disk."""
+        return detect_all_features(self._dir)
 
 
 def _parse_timestamp(ts_str: str) -> datetime | None:

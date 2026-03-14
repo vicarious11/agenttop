@@ -27,7 +27,7 @@ class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
     provider: str = "ollama"
-    model: str = "ollama/qwen3:1.7b"
+    model: str = "ollama/gemma3:4b"
     api_key: str = ""
     api_key_env: str = "ANTHROPIC_API_KEY"
     base_url: str = "http://localhost:11434"
@@ -102,11 +102,11 @@ DEFAULT_CONFIG_TOML = """\
 # agenttop web ensures the LLM is ready before starting.
 
 # ── Ollama (default — free, local, private) ──
-# Install: brew install ollama && ollama pull qwen3:1.7b && ollama serve
+# Install: brew install ollama && ollama pull gemma3:4b && ollama serve
 # No API key needed. All analysis stays on your machine.
 [llm]
 provider = "ollama"
-model = "ollama/qwen3:1.7b"
+model = "ollama/gemma3:4b"
 base_url = "http://localhost:11434"
 max_budget_per_day = 1.0
 

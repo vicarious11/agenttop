@@ -1,97 +1,146 @@
-#!/usr/bin/env sh
-# agenttop — setup script
+#!/usr/bin/env bash
+# agenttop — one-command setup
 #
-# Usage:
-#   ./setup.sh              # full setup (agenttop + Ollama + model)
-#   ./setup.sh --no-ollama  # skip Ollama (use cloud provider instead)
+# Clone and run:
+#   git clone https://github.com/vicarious11/agenttop && cd agenttop && ./setup.sh
 #
-# Supports: macOS, Linux. For Windows, use: pip install agenttop
+# Options:
+#   ./setup.sh              # full setup (venv + deps + Ollama + model)
+#   ./setup.sh --no-ollama  # skip Ollama (use cloud LLM instead)
+#
+# What this does:
+#   1. Finds or installs Python 3.10+
+#   2. Creates a .venv inside this repo (no global pollution)
+#   3. Installs agenttop + all deps into the venv
+#   4. Optionally sets up Ollama for local AI analysis
+#   5. Drops a one-line `run.sh` so you never think about venvs again
 
-set -e
+set -euo pipefail
 
-OLLAMA_MODEL="qwen3:1.7b"
-MIN_PYTHON_MAJOR=3
-MIN_PYTHON_MINOR=10
+OLLAMA_MODEL="gemma3:4b"
 SKIP_OLLAMA=false
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/.venv"
 
 for arg in "$@"; do
     case "$arg" in
         --no-ollama) SKIP_OLLAMA=true ;;
         --help|-h)
             echo "Usage: ./setup.sh [--no-ollama]"
-            echo "  --no-ollama  Skip Ollama install (use cloud provider)"
+            echo "  --no-ollama  Skip Ollama (use a cloud provider instead)"
             exit 0
             ;;
     esac
 done
 
 echo ""
-echo "  agenttop setup"
-echo "  =============="
+echo "  ┌─────────────────────────┐"
+echo "  │   agenttop setup        │"
+echo "  └─────────────────────────┘"
 echo ""
 
-# ── Detect Python ──
+# ── Step 1: Find Python ≥ 3.10 ──
 
-PYTHON_CMD=""
-for cmd in python3 python; do
-    if command -v "$cmd" >/dev/null 2>&1; then
-        version=$("$cmd" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || true)
-        if [ -n "$version" ]; then
-            major=$(echo "$version" | cut -d. -f1)
-            minor=$(echo "$version" | cut -d. -f2)
-            if [ "$major" -ge $MIN_PYTHON_MAJOR ] && [ "$minor" -ge $MIN_PYTHON_MINOR ]; then
-                PYTHON_CMD="$cmd"
-                break
+find_python() {
+    for cmd in python3.13 python3.12 python3.11 python3.10 python3 python; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            ver=$("$cmd" -c "import sys; v=sys.version_info; print(f'{v.major}.{v.minor}')" 2>/dev/null || true)
+            if [ -n "$ver" ]; then
+                major=$(echo "$ver" | cut -d. -f1)
+                minor=$(echo "$ver" | cut -d. -f2)
+                if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
+                    echo "$cmd"
+                    return 0
+                fi
             fi
         fi
-    fi
-done
+    done
+    return 1
+}
+
+PYTHON_CMD=$(find_python) || true
 
 if [ -z "$PYTHON_CMD" ]; then
-    echo "  [error] Python >= ${MIN_PYTHON_MAJOR}.${MIN_PYTHON_MINOR} not found"
+    echo "  Python 3.10+ not found. Trying to install..."
+    case "$(uname -s)" in
+        Darwin)
+            if command -v brew >/dev/null 2>&1; then
+                brew install python@3.12
+                PYTHON_CMD=$(find_python) || true
+            fi
+            ;;
+        Linux)
+            if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update -qq && sudo apt-get install -y -qq python3 python3-venv python3-pip
+                PYTHON_CMD=$(find_python) || true
+            elif command -v dnf >/dev/null 2>&1; then
+                sudo dnf install -y python3 python3-pip
+                PYTHON_CMD=$(find_python) || true
+            fi
+            ;;
+    esac
+fi
+
+if [ -z "$PYTHON_CMD" ]; then
+    echo "  [error] Could not find or install Python 3.10+"
     echo ""
-    echo "  Install Python:"
+    echo "  Install manually:"
     echo "    macOS:  brew install python@3.12"
-    echo "    Linux:  sudo apt install python3.12  (or your distro's package)"
+    echo "    Ubuntu: sudo apt install python3 python3-venv"
     echo "    Any:    https://www.python.org/downloads/"
     exit 1
 fi
-echo "  [ok] Python $version ($PYTHON_CMD)"
 
-# ── Install agenttop via pipx (preferred) or pip ──
+ver=$("$PYTHON_CMD" -c "import sys; v=sys.version_info; print(f'{v.major}.{v.minor}')")
+echo "  [ok] Python $ver ($PYTHON_CMD)"
 
-if command -v pipx >/dev/null 2>&1; then
-    if pipx list 2>/dev/null | grep -q agenttop; then
-        echo "  [ok] agenttop already installed (pipx)"
-    else
-        echo "  Installing agenttop via pipx..."
-        pipx install agenttop
-        echo "  [ok] agenttop installed (pipx)"
-    fi
-elif command -v uv >/dev/null 2>&1; then
-    echo "  Installing agenttop via uv..."
-    uv tool install agenttop
-    echo "  [ok] agenttop installed (uv)"
+# ── Step 2: Create venv ──
+
+if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/python" ]; then
+    echo "  [ok] venv already exists"
 else
-    echo "  Installing agenttop via pip..."
-    "$PYTHON_CMD" -m pip install --user --quiet agenttop
-    echo "  [ok] agenttop installed (pip --user)"
-    echo "  [tip] For better isolation, consider: pipx install agenttop"
+    echo "  Creating virtual environment..."
+    "$PYTHON_CMD" -m venv "$VENV_DIR"
+    echo "  [ok] venv created at .venv/"
 fi
 
-# ── Ollama setup (optional) ──
+# Use the venv Python from here on
+PIP="$VENV_DIR/bin/pip"
+PYTHON="$VENV_DIR/bin/python"
+
+# ── Step 3: Install deps ──
+
+echo "  Installing dependencies..."
+"$PIP" install --quiet --upgrade pip
+"$PIP" install --quiet -e "$SCRIPT_DIR"
+echo "  [ok] agenttop installed"
+
+# ── Step 4: Create run.sh launcher ──
+
+cat > "$SCRIPT_DIR/run.sh" << 'LAUNCHER'
+#!/usr/bin/env bash
+# Launch agenttop — auto-activates the venv, no thinking required
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$DIR/.venv/bin/python" -m uvicorn agenttop.web.server:app --host 127.0.0.1 --port 8420 "$@"
+LAUNCHER
+chmod +x "$SCRIPT_DIR/run.sh"
+
+# ── Step 5: Ollama (optional) ──
 
 if [ "$SKIP_OLLAMA" = true ]; then
     echo ""
-    echo "  Skipping Ollama. Configure a cloud provider:"
+    echo "  Skipping Ollama. Set a cloud provider instead:"
     echo "    export ANTHROPIC_API_KEY=sk-ant-..."
-    echo "    agenttop web --provider anthropic --model claude-haiku-4-5-20251001"
     echo ""
-    echo "  Setup complete!"
+    echo "  ┌─────────────────────────────────────┐"
+    echo "  │  Done! Run:                         │"
+    echo "  │    ./run.sh                          │"
+    echo "  │    open http://localhost:8420         │"
+    echo "  └─────────────────────────────────────┘"
+    echo ""
     exit 0
 fi
 
-# Install Ollama if missing
 if ! command -v ollama >/dev/null 2>&1; then
     echo ""
     case "$(uname -s)" in
@@ -100,60 +149,54 @@ if ! command -v ollama >/dev/null 2>&1; then
                 echo "  Installing Ollama via Homebrew..."
                 brew install --quiet ollama
             else
-                echo "  [error] Ollama not found and Homebrew not available."
-                echo "  Install manually: https://ollama.com/download"
+                echo "  [skip] Install Ollama manually: https://ollama.com/download"
                 echo "  Or re-run with: ./setup.sh --no-ollama"
-                exit 1
             fi
             ;;
         Linux)
             echo "  Installing Ollama..."
-            echo "  This will run: curl -fsSL https://ollama.com/install.sh | sh"
-            echo "  (may require sudo)"
-            curl -fsSL https://ollama.com/install.sh | sh
+            tmpfile=$(mktemp /tmp/ollama-install.XXXXXX.sh)
+            curl -fsSL -o "$tmpfile" https://ollama.com/install.sh
+            sh "$tmpfile"
+            rm -f "$tmpfile"
             ;;
         *)
-            echo "  [error] Unsupported OS for automatic Ollama install."
-            echo "  Install manually: https://ollama.com/download"
-            echo "  Or re-run with: ./setup.sh --no-ollama"
-            exit 1
+            echo "  [skip] Install Ollama manually: https://ollama.com/download"
             ;;
     esac
+fi
+
+if command -v ollama >/dev/null 2>&1; then
     echo "  [ok] Ollama installed"
-else
-    echo "  [ok] Ollama already installed"
-fi
 
-# Start server if needed
-if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
-    echo "  Starting Ollama server..."
-    ollama serve >/dev/null 2>&1 &
-    # Wait up to 10 seconds for server
-    for i in $(seq 1 20); do
-        if curl -sf http://localhost:11434 >/dev/null 2>&1; then
-            break
+    # Start server if not running
+    if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+        echo "  Starting Ollama server..."
+        ollama serve >/dev/null 2>&1 &
+        for _ in $(seq 1 20); do
+            curl -sf http://localhost:11434 >/dev/null 2>&1 && break
+            sleep 0.5
+        done
+    fi
+
+    # Pull model
+    if curl -sf http://localhost:11434 >/dev/null 2>&1; then
+        if ollama show "$OLLAMA_MODEL" >/dev/null 2>&1; then
+            echo "  [ok] Model $OLLAMA_MODEL ready"
+        else
+            echo "  Pulling $OLLAMA_MODEL (one-time, ~3GB)..."
+            ollama pull "$OLLAMA_MODEL"
+            echo "  [ok] Model $OLLAMA_MODEL ready"
         fi
-        sleep 0.5
-    done
-fi
-
-if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
-    echo "  [warn] Could not start Ollama server automatically."
-    echo "  Run 'ollama serve' manually, then 'agenttop web'."
-    exit 0
-fi
-
-# Pull model if needed
-if ollama show "$OLLAMA_MODEL" >/dev/null 2>&1; then
-    echo "  [ok] Model $OLLAMA_MODEL ready"
-else
-    echo "  Pulling $OLLAMA_MODEL (one-time download, ~1GB)..."
-    ollama pull "$OLLAMA_MODEL"
-    echo "  [ok] Model $OLLAMA_MODEL ready"
+    else
+        echo "  [warn] Ollama server didn't start. Run 'ollama serve' manually."
+    fi
 fi
 
 echo ""
-echo "  Setup complete! Launch with:"
-echo ""
-echo "    agenttop web"
+echo "  ┌─────────────────────────────────────┐"
+echo "  │  Done! Run:                         │"
+echo "  │    ./run.sh                          │"
+echo "  │    open http://localhost:8420         │"
+echo "  └─────────────────────────────────────┘"
 echo ""
