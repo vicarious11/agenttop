@@ -232,18 +232,19 @@ class CopilotCollector(BaseCollector):
     def get_model_usage(self) -> dict[str, dict]:
         """Return Copilot session activity as a synthetic model usage entry.
 
-        Copilot routes across multiple models (GPT-4o, Claude, etc.) internally;
-        we report aggregate session counts under a single 'copilot/auto' key.
+        Copilot is subscription-based with no per-token billing and does not
+        expose token counts locally.  We report 0 tokens and omit cost so the
+        optimizer is not misled by fabricated numbers.
         """
         sessions = self._get_vscode_sessions()
         count = len(sessions)
         if count == 0:
             return {}
-        estimated_tokens = count * TOKENS_PER_SESSION
         return {
             "copilot/auto": {
-                "inputTokens": estimated_tokens,
+                "inputTokens": 0,
                 "outputTokens": 0,
                 "cacheReadInputTokens": 0,
+                "sessionCount": count,
             }
         }

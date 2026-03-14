@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -246,8 +247,6 @@ def _extract_json(text: str) -> dict | None:
     - ```json ... ``` or ``` ... ``` fences
     - JSON embedded anywhere in the response
     """
-    import re as _re
-
     text = text.strip()
     # Try raw parse first
     try:
@@ -256,7 +255,7 @@ def _extract_json(text: str) -> dict | None:
         pass
 
     # Strip code fences: ```json\n...\n``` or ```\n...\n```
-    fence_match = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, _re.DOTALL)
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fence_match:
         try:
             return json.loads(fence_match.group(1))

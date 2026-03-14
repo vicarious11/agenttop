@@ -10,6 +10,7 @@ from agenttop.models import Session, ToolName
 from agenttop.web.optimizer import (
     AIUsageOptimizer,
     _build_cost_forensics,
+    _extract_json,
 )
 
 
@@ -141,3 +142,45 @@ class TestCostForensics:
         result = _build_cost_forensics({}, [], {})
         assert result["total_cost"] == 0
         assert result["estimated_waste"] == 0.0
+
+
+class TestExtractJson:
+    """Tests for _extract_json."""
+
+    def test_raw_json_object(self) -> None:
+        result = _extract_json('{"score": 80, "source": "llm"}')
+        assert result == {"score": 80, "source": "llm"}
+
+    def test_fenced_json_block(self) -> None:
+        text = '```json\n{"score": 90}\n```'
+        result = _extract_json(text)
+        assert result == {"score": 90}
+
+    def test_fenced_no_language_tag(self) -> None:
+        text = '```\n{"key": "value"}\n```'
+        result = _extract_json(text)
+        assert result == {"key": "value"}
+
+    def test_json_embedded_in_prose(self) -> None:
+        text = 'Here is the analysis: {"score": 75, "recommendations": []} Great work!'
+        result = _extract_json(text)
+        assert result == {"score": 75, "recommendations": []}
+
+    def test_malformed_json_returns_none(self) -> None:
+        result = _extract_json("not json at all")
+        assert result is None
+
+    def test_malformed_fenced_block_returns_none(self) -> None:
+        result = _extract_json("```json\n{broken\n```")
+        assert result is None
+
+    def test_empty_string_returns_none(self) -> None:
+        result = _extract_json("")
+        assert result is None
+
+    def test_nested_json_object(self) -> None:
+        text = '{"grades": {"cache": {"grade": "A"}}, "score": 85}'
+        result = _extract_json(text)
+        assert result is not None
+        assert result["score"] == 85
+        assert result["grades"]["cache"]["grade"] == "A"

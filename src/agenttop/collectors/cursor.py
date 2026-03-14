@@ -45,7 +45,8 @@ CURSOR_DEFAULT_CONTEXT_PCT   = 15.0     # fallback when contextUsagePercent == 0
 CURSOR_OUTPUT_TOKENS_PER_SEC = 50       # streaming throughput for Sonnet
 CURSOR_DEFAULT_INFERENCE_S   = 15.0     # per-message fallback (no timing data)
 
-# USD per million tokens
+# USD per million tokens — sourced from cursor.com/pricing (checked March 2026).
+# Agent mode bills at Claude Sonnet rates; Chat mode at cursor-small / GPT-4o-mini rates.
 _AGENT_PRICE = {"input": 3.00, "output": 15.00}   # Claude Sonnet
 _CHAT_PRICE  = {"input": 0.15, "output":  0.60}   # cursor-small / GPT-4o-mini
 
@@ -77,10 +78,10 @@ def _project_from_path(filepath: str) -> str | None:
 class CursorCollector(BaseCollector):
     """Collects data from Cursor's local SQLite databases."""
 
-    def __init__(self, cursor_dir: Path | None = None) -> None:
+    def __init__(self, cursor_dir: Path | None = None, ws_dir: Path | None = None) -> None:
         self._dir = cursor_dir or CURSOR_DIR
         self._db_path = self._dir / "ai-tracking" / "ai-code-tracking.db"
-        self._ws_dir = CURSOR_WS_DIR
+        self._ws_dir = ws_dir if ws_dir is not None else CURSOR_WS_DIR
 
     @property
     def tool_name(self) -> ToolName:
@@ -199,87 +200,116 @@ class CursorCollector(BaseCollector):
 
         return result
 
+    def _parse_workspace_sessions(
+        self, db_path: Path, project: str | None, since_ms: int
+    ) -> dict[str, dict]:
+        """Read composer sessions from one workspace DB.
+
+        Returns a dict keyed by composerId with raw session data.
+        Only sessions created after *since_ms* are included.
+        """
+        sessions: dict[str, dict] = {}
+        data = self._read_db_key(db_path, "composer.composerData")
+        if not isinstance(data, dict):
+            return sessions
+        for comp in data.get("allComposers", []):
+            cid = comp.get("composerId", "")
+            if not cid:
+                continue
+            created_ms = comp.get("createdAt", 0) or 0
+            updated_ms = comp.get("lastUpdatedAt", created_ms) or created_ms
+            if since_ms and created_ms < since_ms:
+                continue
+            sessions[cid] = {
+                "session_id": cid,
+                "project": project,
+                "created_ms": created_ms,
+                "updated_ms": updated_ms,
+                "name": comp.get("name", ""),
+                "mode": comp.get("unifiedMode", "chat"),
+                "lines_added": comp.get("totalLinesAdded", 0) or 0,
+                "lines_removed": comp.get("totalLinesRemoved", 0) or 0,
+                "context_pct": comp.get("contextUsagePercent", 0.0) or 0.0,
+                "files_changed": comp.get("filesChangedCount", 0) or 0,
+                "prompts": [],
+                "tokens": 0,
+            }
+        return sessions
+
+    def _attach_prompts(
+        self, sessions: dict[str, dict], db_path: Path, project: str | None
+    ) -> None:
+        """Attach prompts from aiService.prompts to the most recent session for this workspace."""
+        prompts = self._read_db_key(db_path, "aiService.prompts")
+        if not isinstance(prompts, list):
+            return
+        ws_sessions = [s for s in sessions.values() if s["project"] == project]
+        if not ws_sessions:
+            return
+        target = max(ws_sessions, key=lambda s: s["created_ms"])
+        for p in prompts:
+            if isinstance(p, dict):
+                txt = p.get("text", "")
+                if txt and len(target["prompts"]) < 50:
+                    target["prompts"].append(txt[:500])
+
+    def _attach_generation_tokens(
+        self, sessions: dict[str, dict], db_path: Path, project: str | None, since_ms: int
+    ) -> None:
+        """Add token estimates from aiService.generations to the most recent workspace session."""
+        gens = self._read_db_key(db_path, "aiService.generations")
+        if not isinstance(gens, list):
+            return
+        ws_sessions = [s for s in sessions.values() if s["project"] == project]
+        if not ws_sessions:
+            return
+        target = max(ws_sessions, key=lambda s: s["created_ms"])
+        for g in gens:
+            if not isinstance(g, dict):
+                continue
+            g_ms = g.get("unixMs", 0) or 0
+            if since_ms and g_ms < since_ms:
+                continue
+            target["tokens"] += TOKENS_PER_PROMPT_ESTIMATE
+
+    def _enrich_with_kv(self, sessions: dict[str, dict], kv: dict[str, dict]) -> None:
+        """Enrich sessions with global KV data (timing, context, lines, project)."""
+        for s in sessions.values():
+            kv_entry = kv.get(s["session_id"])
+            if not kv_entry:
+                continue
+            if not s["project"] and kv_entry["project_from_files"]:
+                s["project"] = kv_entry["project_from_files"]
+            if kv_entry["message_count"] > 0:
+                s["message_count"] = kv_entry["message_count"]
+            if kv_entry["context_pct"]:
+                s["context_pct"] = kv_entry["context_pct"]
+            if kv_entry["lines_added"]:
+                s["lines_added"] = kv_entry["lines_added"]
+
+    def _compute_costs_for_sessions(self, sessions: dict[str, dict], kv: dict[str, dict]) -> None:
+        """Compute and attach cost fields (input_tokens, output_tokens, estimated_cost) to all sessions."""
+        for s in sessions.values():
+            kv_entry = kv.get(s["session_id"])
+            inp, out, cost = self._compute_session_cost(s, kv_entry)
+            s["input_tokens"] = inp
+            s["output_tokens"] = out
+            s["tokens"] = inp + out
+            s["estimated_cost"] = cost
+
     def _get_all_workspace_data(self, since: datetime | None = None) -> list[dict]:
         """Aggregate composer sessions from all workspace databases."""
         since_ms = int(since.timestamp() * 1000) if since else 0
         sessions: dict[str, dict] = {}
 
         for db_path, project in self._workspace_dbs():
-            # --- composer sessions ---
-            data = self._read_db_key(db_path, "composer.composerData")
-            if isinstance(data, dict):
-                for comp in data.get("allComposers", []):
-                    cid = comp.get("composerId", "")
-                    if not cid:
-                        continue
-                    created_ms = comp.get("createdAt", 0) or 0
-                    updated_ms = comp.get("lastUpdatedAt", created_ms) or created_ms
-                    if since_ms and created_ms < since_ms:
-                        continue
-                    if cid not in sessions:
-                        sessions[cid] = {
-                            "session_id": cid,
-                            "project": project,
-                            "created_ms": created_ms,
-                            "updated_ms": updated_ms,
-                            "name": comp.get("name", ""),
-                            "mode": comp.get("unifiedMode", "chat"),
-                            "lines_added": comp.get("totalLinesAdded", 0) or 0,
-                            "lines_removed": comp.get("totalLinesRemoved", 0) or 0,
-                            "context_pct": comp.get("contextUsagePercent", 0.0) or 0.0,
-                            "files_changed": comp.get("filesChangedCount", 0) or 0,
-                            "prompts": [],
-                            "tokens": 0,
-                        }
+            sessions.update(self._parse_workspace_sessions(db_path, project, since_ms))
+            self._attach_prompts(sessions, db_path, project)
+            self._attach_generation_tokens(sessions, db_path, project, since_ms)
 
-            # --- prompts → attach to most-recent session for this workspace ---
-            prompts = self._read_db_key(db_path, "aiService.prompts")
-            if isinstance(prompts, list):
-                # Find most recent session from this workspace
-                ws_sessions = [s for s in sessions.values() if s["project"] == project]
-                if ws_sessions:
-                    target = max(ws_sessions, key=lambda s: s["created_ms"])
-                    for p in prompts:
-                        if isinstance(p, dict):
-                            txt = p.get("text", "")
-                            if txt and len(target["prompts"]) < 50:
-                                target["prompts"].append(txt[:500])
-
-            # --- generations with timestamps for hourly breakdown ---
-            gens = self._read_db_key(db_path, "aiService.generations")
-            if isinstance(gens, list):
-                ws_sessions_by_id = {s["session_id"]: s for s in sessions.values()}
-                for g in gens:
-                    if not isinstance(g, dict):
-                        continue
-                    g_ms = g.get("unixMs", 0) or 0
-                    if since_ms and g_ms < since_ms:
-                        continue
-                    # Assign to most recent matching workspace session
-                    ws_sess = [s for s in sessions.values() if s["project"] == project]
-                    if ws_sess:
-                        target = max(ws_sess, key=lambda s: s["created_ms"])
-                        target["tokens"] += TOKENS_PER_PROMPT_ESTIMATE
-
-        # Second pass: enrich with global KV data and compute accurate cost
         kv = self._get_global_kv_data()
-        for s in sessions.values():
-            kv_entry = kv.get(s["session_id"])
-            if kv_entry:
-                if not s["project"] and kv_entry["project_from_files"]:
-                    s["project"] = kv_entry["project_from_files"]
-                if kv_entry["message_count"] > 0:
-                    s["message_count"] = kv_entry["message_count"]
-                if kv_entry["context_pct"]:
-                    s["context_pct"] = kv_entry["context_pct"]
-                if kv_entry["lines_added"]:
-                    s["lines_added"] = kv_entry["lines_added"]
-
-            inp, out, cost = self._compute_session_cost(s, kv_entry)
-            s["input_tokens"] = inp
-            s["output_tokens"] = out
-            s["tokens"] = inp + out
-            s["estimated_cost"] = cost
+        self._enrich_with_kv(sessions, kv)
+        self._compute_costs_for_sessions(sessions, kv)
 
         return list(sessions.values())
 

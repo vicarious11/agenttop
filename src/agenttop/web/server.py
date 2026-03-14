@@ -22,15 +22,6 @@ from agenttop.collectors.kiro import KiroCollector
 from agenttop.config import Config, load_config
 from agenttop.web.graph_builder import GraphBuilder
 
-# Pre-import litellm in the main thread so it initialises its httpx/asyncio
-# machinery before any run_in_executor calls.  Without this, the first import
-# inside a worker thread can collide with the running event loop and raise
-# APIConnectionError even when the LLM provider is reachable.
-try:
-    import litellm as _litellm  # noqa: F401
-except ImportError:
-    pass
-
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="agenttop", docs_url=None, redoc_url=None)
