@@ -18,6 +18,8 @@
 set -euo pipefail
 
 OLLAMA_MODEL="gemma3:4b"
+MIN_PYTHON_MAJOR=3
+MIN_PYTHON_MINOR=10
 SKIP_OLLAMA=false
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
@@ -155,10 +157,13 @@ if ! command -v ollama >/dev/null 2>&1; then
             ;;
         Linux)
             echo "  Installing Ollama..."
-            tmpfile=$(mktemp /tmp/ollama-install.XXXXXX.sh)
-            curl -fsSL -o "$tmpfile" https://ollama.com/install.sh
-            sh "$tmpfile"
-            rm -f "$tmpfile"
+            echo "  Downloading installer from https://ollama.com/install.sh"
+            echo "  (may require sudo)"
+            OLLAMA_INSTALLER=$(mktemp /tmp/ollama-install-XXXXXX.sh)
+            curl -fsSL https://ollama.com/install.sh -o "$OLLAMA_INSTALLER"
+            echo "  Installer saved to $OLLAMA_INSTALLER — review before continuing if needed."
+            sh "$OLLAMA_INSTALLER"
+            rm -f "$OLLAMA_INSTALLER"
             ;;
         *)
             echo "  [skip] Install Ollama manually: https://ollama.com/download"
@@ -188,9 +193,23 @@ if command -v ollama >/dev/null 2>&1; then
             ollama pull "$OLLAMA_MODEL"
             echo "  [ok] Model $OLLAMA_MODEL ready"
         fi
-    else
-        echo "  [warn] Ollama server didn't start. Run 'ollama serve' manually."
-    fi
+        sleep 0.5
+    done
+fi
+
+if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "  [warn] Could not start Ollama server automatically."
+    echo "  Run 'ollama serve' manually, then 'agenttop web'."
+    exit 0
+fi
+
+# Pull model if needed
+if ollama show "$OLLAMA_MODEL" >/dev/null 2>&1; then
+    echo "  [ok] Model $OLLAMA_MODEL ready"
+else
+    echo "  Pulling $OLLAMA_MODEL (one-time download, ~3GB)..."
+    ollama pull "$OLLAMA_MODEL"
+    echo "  [ok] Model $OLLAMA_MODEL ready"
 fi
 
 echo ""

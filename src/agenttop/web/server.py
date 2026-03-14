@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -168,9 +169,12 @@ async def _precompute_optimize() -> None:
                 None, _run_optimize,
             )
             _cached_optimize = result
-            _cached_optimize_time = time.time()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error("Optimizer precompute failed: %s", e, exc_info=True)
+            _cached_optimize = {
+                "error": f"Precompute failed: {e}",
+                "source": "error",
+            }
         finally:
             _optimize_running = False
 
@@ -192,11 +196,28 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
     ):
         return JSONResponse(_cached_optimize)
 
-    # Run fresh analysis (retries if previous result was an error or cache expired)
+    # If startup precompute is still running, wait for it (up to 90s)
+    if req.days == 0 and _optimize_running:
+        for _ in range(180):
+            await asyncio.sleep(0.5)
+            if not _optimize_running:
+                break
+        if _cached_optimize is not None:
+            return JSONResponse(_cached_optimize)
+
+    # Run fresh analysis (retries if previous result was an error)
     try:
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, _run_optimize, req.days,
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None, _run_optimize, req.days,
+            ),
+            timeout=90.0,
         )
+    except asyncio.TimeoutError:
+        return JSONResponse({
+            "error": "Analysis timed out. Check your LLM provider.",
+            "source": "error",
+        })
     except Exception as e:
         return JSONResponse({
             "error": f"Optimizer crashed: {e}",
@@ -243,7 +264,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             await ws.send_json(totals)
     except WebSocketDisconnect:
         _ws_clients.discard(ws)
-    except Exception:
+    except Exception as e:
+        logging.error("WebSocket error: %s", e, exc_info=True)
         _ws_clients.discard(ws)
 
 

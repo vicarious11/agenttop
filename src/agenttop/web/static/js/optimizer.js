@@ -97,7 +97,7 @@ const Optimizer = {
       const data = await res.json();
       if (!data.error || data.source === 'partial') {
         Optimizer._cached = data;
-        try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) {}
+        try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) { console.warn('Failed to cache optimizer results:', e); }
       }
     } catch(e) {
       // silent — user can still click Analyze
@@ -171,7 +171,7 @@ const Optimizer = {
         Optimizer._updateHandle();
         content.innerHTML = `
           <div style="text-align:center;padding:24px;color:var(--neon-red);">
-            Server returned an error. Check that Ollama is running.
+            Server returned an error. Check your LLM provider is running and configured.
             <br><br>
             <pre style="text-align:left;background:var(--bg-card);padding:12px;border-radius:6px;font-size:11px;color:var(--text-secondary);max-width:500px;margin:0 auto;white-space:pre-wrap;overflow:auto;max-height:200px;">${text.slice(0, 500)}</pre>
             <br>
@@ -199,7 +199,7 @@ const Optimizer = {
 
       // Success or partial (has Python metrics even if LLM failed)
       Optimizer._cached = data;
-      try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) {}
+      try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) { console.warn('Failed to cache optimizer results:', e); }
       Optimizer._renderResults(data);
     } catch (err) {
       Optimizer._loading = false;
@@ -659,5 +659,5 @@ document.addEventListener('DOMContentLoaded', () => {
       Optimizer._cached = JSON.parse(cached);
       Optimizer._updateHandle();
     }
-  } catch(e) {}
+  } catch(e) { console.warn('Failed to restore cached optimizer results:', e); }
 });

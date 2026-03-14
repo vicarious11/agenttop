@@ -13,6 +13,7 @@ Architecture:
 from __future__ import annotations
 
 import json
+import logging
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -576,12 +577,18 @@ def _build_cost_forensics(
     ]
     cost_by_model.sort(key=lambda x: x["cost"], reverse=True)
 
-    # Estimated waste: tokens from marathon session tails (messages after 50)
+    # Estimated waste from marathon sessions.
+    # 50 messages = threshold where context windows typically bloat and model
+    # performance degrades (based on Claude Code session analysis heuristics).
+    # 0.5 multiplier = conservative estimate that ~half the tail tokens are
+    # wasted on redundant context re-reads rather than productive output.
+    marathon_threshold = 50
+    waste_discount = 0.5
     estimated_waste = 0.0
     for s in sessions:
-        if s.message_count > 50:
-            tail_fraction = (s.message_count - 50) / s.message_count
-            estimated_waste += s.estimated_cost_usd * tail_fraction * 0.5
+        if s.message_count > marathon_threshold:
+            tail_fraction = (s.message_count - marathon_threshold) / s.message_count
+            estimated_waste += s.estimated_cost_usd * tail_fraction * waste_discount
 
     waste_pct = round(estimated_waste / total_cost * 100, 1) if total_cost > 0 else 0
 
@@ -860,8 +867,8 @@ def build_user_profile(
                     "total_messages": summary.get("totalMessages", 0),
                     "first_session": summary.get("firstSessionDate"),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to enrich profile from Claude collector: %s", e)
 
     # -- Feature detection (ground truth for optimizer) --
     if feature_configs:
