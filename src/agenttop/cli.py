@@ -169,7 +169,6 @@ def analyze(days: int) -> None:
 @main.command()
 @click.option("--port", default=8420, help="Port for the web dashboard.")
 @click.option("--no-browser", is_flag=True, help="Don't auto-open browser.")
-@click.option("--demo", is_flag=True, help="Demo mode: anonymize project names/prompts for recording.")
 @click.option(
     "--provider",
     type=click.Choice(
@@ -185,7 +184,6 @@ def analyze(days: int) -> None:
 def web(
     port: int,
     no_browser: bool,
-    demo: bool,
     provider: str | None,
     model: str | None,
 ) -> None:
@@ -195,10 +193,6 @@ def web(
     from agenttop.config import load_config
 
     _apply_cli_overrides(provider, model)
-
-    if demo:
-        os.environ["AGENTTOP_DEMO"] = "1"
-        click.echo(click.style("  Demo mode ON", fg="cyan") + " — project names and prompts anonymized")
 
     # Quick non-blocking LLM check — dashboard starts immediately
     # regardless of LLM availability. Optimizer gracefully degrades.

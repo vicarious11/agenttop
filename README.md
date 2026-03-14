@@ -451,13 +451,12 @@ Built by `GraphBuilder` in `graph_builder.py`. Data sources:
 
 | Endpoint | Method | Description | Query Params |
 |----------|--------|-------------|--------------|
-| `/api/stats` | GET | Aggregated stats from all available collectors | `days` (0=all), `demo` |
-| `/api/sessions` | GET | Recent sessions across all tools (max 200) | `days` (default 7), `demo` |
-| `/api/models` | GET | Claude model usage breakdown (input/output/cache tokens) | `demo` |
+| `/api/stats` | GET | Aggregated stats from all available collectors | `days` (0=all) |
+| `/api/sessions` | GET | Recent sessions across all tools (max 200) | `days` (default 7) |
+| `/api/models` | GET | Claude model usage breakdown (input/output/cache tokens) | — |
 | `/api/hours` | GET | Hourly token distribution merged from all tools | `days` (0=all) |
-| `/api/graph` | GET | D3-compatible knowledge graph (nodes + edges) | `days` (0=all), `demo` |
-| `/api/optimize` | POST | Full optimizer analysis (Python metrics + LLM) | Body: `{"days": 0, "demo": true}` |
-| `/api/demo/snapshot` | GET | Self-contained HTML with anonymized data for recording | — |
+| `/api/graph` | GET | D3-compatible knowledge graph (nodes + edges) | `days` (0=all) |
+| `/api/optimize` | POST | Full optimizer analysis (Python metrics + LLM) | Body: `{"days": 0}` |
 | `/api/kb-refresh` | POST | Manually trigger knowledge base refresh from official docs | — |
 | `/ws` | WebSocket | Real-time stat updates (send days preference as text) | — |
 
@@ -487,9 +486,8 @@ agenttop/
 │   │   ├── recommend.py         # Recommendation generation
 │   │   └── workflow.py          # Workflow analysis
 │   ├── web/                     # Web dashboard
-│   │   ├── server.py            # FastAPI server + API endpoints + demo/KB refresh
+│   │   ├── server.py            # FastAPI server + API endpoints + KB refresh
 │   │   ├── optimizer.py         # Hybrid optimizer engine + KNOWLEDGE_BASE
-│   │   ├── demo.py              # Demo mode: data anonymization for recordings
 │   │   ├── kb_refresh.py        # Background KB refresh from official docs
 │   │   ├── graph_builder.py     # D3 knowledge graph builder (447 lines)
 │   │   └── static/              # Frontend SPA
@@ -617,7 +615,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 agenttop              # TUI dashboard (terminal)
 agenttop web          # Web dashboard with optimizer (localhost:8420)
-agenttop web --demo   # Demo mode: anonymize projects/prompts for video recording
 agenttop stats        # Quick CLI summary
 agenttop analyze      # Workflow analysis (CLI)
 agenttop init         # Generate ~/.agenttop/config.toml
@@ -625,28 +622,6 @@ agenttop proxy        # API proxy for unsupported tools
 ```
 
 `--days 7` to filter by time range. `--provider` / `--model` to override LLM. `--port` to change port.
-
-### Demo Mode (for video recording)
-
-All real project names, prompts, session IDs, and file paths are replaced with convincing fake data while keeping metrics (tokens, costs, session counts) real.
-
-```bash
-# Option 1: CLI flag
-agenttop web --demo
-
-# Option 2: Environment variable
-AGENTTOP_DEMO=1 agenttop web
-
-# Option 3: Query parameter on any API endpoint
-curl http://localhost:8420/api/stats?demo=true
-
-# Option 4: Generate a self-contained HTML snapshot
-# Save this HTML and use it offline for screen recording
-curl http://localhost:8420/api/demo/snapshot > demo.html
-open demo.html
-```
-
-Fake project names: `quantum-engine`, `nebula-api`, `horizon-ui`, `atlas-core`, `phoenix-ml`, etc. Same real name always maps to the same fake name within a session.
 
 ---
 
