@@ -194,14 +194,24 @@ def web(
 
     _apply_cli_overrides(provider, model)
 
-    # Best-effort LLM setup — dashboard works without it,
-    # optimizer will show setup instructions if LLM is unavailable
+    # Quick non-blocking LLM check — dashboard starts immediately
+    # regardless of LLM availability. Optimizer gracefully degrades.
     config = load_config()
     if config.llm.provider == "ollama":
-        _ensure_ollama(
-            model=config.llm.model.replace("ollama/", ""),
-            base_url=config.llm.base_url,
-        )
+        if _check_ollama(config.llm.base_url):
+            click.echo(
+                click.style("  Ollama ready", fg="green")
+                + f" ({config.llm.model.replace('ollama/', '')})"
+            )
+        else:
+            click.echo(click.style(
+                "  Ollama not running — optimizer unavailable.",
+                fg="yellow",
+            ))
+            click.echo(
+                "  Run `agenttop init` to set up, or use "
+                "--provider anthropic"
+            )
     else:
         _check_cloud_provider(config)
 

@@ -291,7 +291,7 @@ Using the data above, return ONLY valid JSON with this exact structure:
 Rules:
 - Reference REAL numbers from the data (tokens, costs, session counts)
 - 3-7 recommendations, ranked by impact
-- Only flag missing features where data gives evidence
+- Cross-reference "feature_detection" with session patterns for missing_features. If feature_detection shows agents/commands/rules/skills are configured, do NOT flag them as missing. If feature_detection shows they're NOT configured but session patterns suggest they'd help, flag them with evidence.
 - Be specific and actionable, not generic
 - Return ONLY the JSON object, no markdown fences, no explanation
 """
@@ -536,8 +536,13 @@ def _build_cost_forensics(
         )[:10]
     ]
 
-    # Cost by model
-    cost_by_model: list[dict[str, Any]] = []
+    # Cost by model — aggregate from Claude's detailed model_usage AND
+    # from all sessions (Cursor, Codex, Copilot report model in session data)
+    model_costs: dict[str, dict[str, float]] = defaultdict(
+        lambda: {"cost": 0.0, "tokens": 0},
+    )
+
+    # Claude: precise per-model breakdown from stats-cache
     for model_id, usage in model_usage.items():
         pricing = _match_model_pricing(model_id)
         model_cost = (
@@ -546,16 +551,30 @@ def _build_cost_forensics(
             + usage.get("cacheReadInputTokens", 0) / 1_000_000 * pricing["cache_read"]
             + usage.get("cacheCreationInputTokens", 0) / 1_000_000 * pricing["cache_create"]
         )
-        total_tokens = (
+        billed_tokens = (
             usage.get("inputTokens", 0)
             + usage.get("outputTokens", 0)
-            + usage.get("cacheReadInputTokens", 0)
         )
-        cost_by_model.append({
-            "model": model_id,
-            "cost": round(model_cost, 2),
-            "tokens": total_tokens,
-        })
+        model_costs[model_id]["cost"] += model_cost
+        model_costs[model_id]["tokens"] += billed_tokens
+
+    # Non-Claude tools: aggregate session-level costs by tool name
+    # (these tools don't have per-model token breakdowns)
+    claude_session_ids = {
+        s.id for s in sessions if s.tool.value == "claude_code"
+    }
+    for s in sessions:
+        if s.id in claude_session_ids:
+            continue  # Claude already covered by model_usage above
+        label = s.tool.value
+        model_costs[label]["cost"] += s.estimated_cost_usd
+        model_costs[label]["tokens"] += s.total_tokens
+
+    cost_by_model = [
+        {"model": model_id, "cost": round(d["cost"], 2), "tokens": int(d["tokens"])}
+        for model_id, d in model_costs.items()
+        if d["cost"] > 0 or d["tokens"] > 0
+    ]
     cost_by_model.sort(key=lambda x: x["cost"], reverse=True)
 
     # Estimated waste from marathon sessions.
@@ -592,6 +611,7 @@ def build_user_profile(
     sessions: list[Session],
     model_usage: dict[str, Any],
     claude_collector: Any | None = None,
+    feature_configs: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a rich user profile from real collector data."""
     profile: dict[str, Any] = {}
@@ -850,6 +870,10 @@ def build_user_profile(
         except Exception as e:
             logging.debug("Failed to enrich profile from Claude collector: %s", e)
 
+    # -- Feature detection (ground truth for optimizer) --
+    if feature_configs:
+        profile["feature_detection"] = feature_configs
+
     return profile
 
 
@@ -900,6 +924,7 @@ def _build_llm_input(
             "session_details": profile.get("session_details", []),
         },
         "tool_knowledge": tool_knowledge,
+        "feature_detection": profile.get("feature_detection", {}),
         "universal_practices": UNIVERSAL_PRACTICES,
     }
 
@@ -931,6 +956,7 @@ class AIUsageOptimizer:
         stats: list[dict[str, Any]],
         sessions: list[Session],
         model_usage: dict[str, Any],
+        feature_configs: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Run optimization analysis.
 
@@ -941,7 +967,7 @@ class AIUsageOptimizer:
         """
         # Build the user profile from real data
         profile = build_user_profile(
-            stats, sessions, model_usage, self._claude,
+            stats, sessions, model_usage, self._claude, feature_configs,
         )
 
         # Get LLM analysis
@@ -1026,6 +1052,7 @@ class AIUsageOptimizer:
                 ),
                 "active_tools": len(profile.get("active_tools", [])),
             },
+            "feature_detection": profile.get("feature_detection", {}),
         }
 
         # Handle LLM errors

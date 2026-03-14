@@ -204,9 +204,11 @@ class GraphBuilder:
         for model_id, usage in model_usage.items():
             inp = usage.get("inputTokens", 0)
             out = usage.get("outputTokens", 0)
-            cache = usage.get("cacheReadInputTokens", 0)
-            total = inp + out + cache
-            if total == 0:
+            cache_read = usage.get("cacheReadInputTokens", 0)
+            cache_create = usage.get("cacheCreationInputTokens", 0)
+            # Use billed tokens (input + output) for sizing — NOT cache
+            billed = inp + out
+            if billed == 0:
                 continue
 
             color = "#ff9944"
@@ -223,12 +225,13 @@ class GraphBuilder:
                     "id": mid,
                     "type": "model",
                     "label": display,
-                    "value": total,
+                    "value": billed,
                     "color": color,
                     "status": "active",
                     "inputTokens": inp,
                     "outputTokens": out,
-                    "cacheRead": cache,
+                    "cacheRead": cache_read,
+                    "cacheCreate": cache_create,
                     "layer": 2,
                 })
                 node_ids.add(mid)
@@ -237,8 +240,8 @@ class GraphBuilder:
                 edges.append({
                     "source": "claude_code",
                     "target": mid,
-                    "value": total,
-                    "label": f"{display}",
+                    "value": billed,
+                    "label": display,
                     "edgeType": "model_usage",
                 })
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from agenttop.models import Event, Session, ToolName, ToolStats
 
@@ -11,7 +12,7 @@ class BaseCollector(ABC):
     """Abstract base class for AI tool data collectors.
 
     To add support for a new tool, subclass BaseCollector and implement
-    the three abstract methods. Register the collector in collectors/__init__.py.
+    the abstract methods. Register the collector in collectors/__init__.py.
     """
 
     @property
@@ -38,3 +39,15 @@ class BaseCollector(ABC):
         Args:
             days: Number of days to aggregate. 0 = all available data.
         """
+
+    def get_feature_config(self) -> dict[str, Any]:
+        """Return detected feature configuration for this tool.
+
+        Override to report which features (agents, rules, commands, etc.)
+        the user has configured. The optimizer uses this to give accurate
+        recommendations instead of guessing from session patterns.
+
+        Returns a dict with tool-specific keys. Empty dict means no
+        feature detection is implemented for this collector.
+        """
+        return {}

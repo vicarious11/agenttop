@@ -92,12 +92,11 @@ class ModelUsageChart(PlotextPlot):
         colors = []
         for model_id, usage in sorted(
             model_usage.items(),
-            key=lambda x: sum(v for k, v in x[1].items() if "Tokens" in k),
+            key=lambda x: x[1].get("inputTokens", 0) + x[1].get("outputTokens", 0),
         ):
             total = (
                 usage.get("inputTokens", 0)
                 + usage.get("outputTokens", 0)
-                + usage.get("cacheReadInputTokens", 0)
             )
             if total > 0:
                 names.append(_short_model(model_id))

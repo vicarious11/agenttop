@@ -3,6 +3,16 @@
 `htop` for AI coding agents. See where your tokens go.
 
 ```bash
+git clone https://github.com/vicarious11/agenttop && cd agenttop
+./setup.sh
+./run.sh        # http://localhost:8420
+```
+
+That's it. `setup.sh` handles Python, virtualenv, dependencies, and Ollama. Nothing installed globally.
+
+Or if you prefer pip:
+
+```bash
 pip install agenttop
 agenttop web
 ```
@@ -23,9 +33,9 @@ This is not a dashboard that shows you a number and leaves. The optimizer builds
 
 **Anti-patterns** — correction spirals where you keep re-prompting instead of starting fresh. Marathon sessions past 50 messages where the AI forgets your original intent. Repeated prompts that could be a CLAUDE.md rule instead.
 
-**Cost forensics** — not "you spent $X" but *which project is burning money, which model is overkill for what you're doing, and how much you'd save by switching*. Broken down by project, by model, with waste estimates.
+**Cost forensics** — not "you spent $X" but _which project is burning money, which model is overkill for what you're doing, and how much you'd save by switching_. Broken down by project, by model, with waste estimates.
 
-**Missing features** — CLAUDE.md project memory, custom slash commands, prompt caching, sub-agents, multi-file editing. You're paying for tools with capabilities you've never touched. The optimizer cross-references your usage against a knowledge base of official docs and tells you which features would actually help *you*, based on your patterns.
+**Missing features** — CLAUDE.md project memory, custom slash commands, prompt caching, sub-agents, multi-file editing. You're paying for tools with capabilities you've never touched. The optimizer cross-references your usage against a knowledge base of official docs and tells you which features would actually help _you_, based on your patterns.
 
 **Developer profile** — maps your style (debug warrior, explorer, methodical builder) and gives targeted advice instead of generic tips.
 
@@ -63,6 +73,7 @@ Every tool, model, project, and feature — connected in a force-directed graph.
 Collectors read local data directories. No network calls, no telemetry, no cloud uploads. Your data never leaves your machine. The optimizer is the only component that calls an LLM — local Ollama by default.
 
 The optimizer itself is a hybrid:
+
 - **Python computes deterministic metrics** — anti-patterns, cost forensics, prompt analysis, context engineering. These are always accurate regardless of LLM quality.
 - **LLM adds intelligence** — grades, recommendations, developer profile, project insights. Structured JSON in, structured JSON out.
 - **Graceful degradation** — if the LLM is unavailable, the dashboard still shows all Python-computed metrics.
@@ -100,14 +111,14 @@ Or edit `~/.agenttop/config.toml` (created by `agenttop init`).
 
 ## Supported tools
 
-| Tool | Data source | What's tracked |
-|------|------------|----------------|
-| Claude Code | `~/.claude/` | Sessions, tokens, tool calls, costs, models, projects |
-| Cursor | `~/.cursor/ai-tracking/` | AI code gen, conversations, AI vs human ratio |
-| Kiro | `~/Library/Application Support/Kiro/` | Agent activity |
-| Codex | `~/.codex/` | Sessions, token usage |
-| Copilot | `~/.config/github-copilot/` | Completions, suggestions |
-| Any tool | Local proxy | Token counts, latency, costs |
+| Tool        | Data source                           | What's tracked                                        |
+| ----------- | ------------------------------------- | ----------------------------------------------------- |
+| Claude Code | `~/.claude/`                          | Sessions, tokens, tool calls, costs, models, projects |
+| Cursor      | `~/.cursor/ai-tracking/`              | AI code gen, conversations, AI vs human ratio         |
+| Kiro        | `~/Library/Application Support/Kiro/` | Agent activity                                        |
+| Codex       | `~/.codex/`                           | Sessions, token usage                                 |
+| Copilot     | `~/.config/github-copilot/`           | Completions, suggestions                              |
+| Any tool    | Local proxy                           | Token counts, latency, costs                          |
 
 ## Commands
 
@@ -139,9 +150,9 @@ All API calls flow through agenttop and get logged. The proxy forwards requests 
 ```bash
 git clone https://github.com/vicarious11/agenttop
 cd agenttop
-pip install -e ".[dev]"
+./setup.sh --no-ollama
+source .venv/bin/activate
 pytest
-agenttop web
 ```
 
 ## License
