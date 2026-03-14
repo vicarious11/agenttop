@@ -279,7 +279,7 @@ Using the data above, return ONLY valid JSON with this exact structure:
     {{"tool": "<tool name>", "feature": "<feature name>", "evidence": "<data evidence>", "benefit": "<what they'd gain>"}}
   ],
   "project_insights": [
-    {{"project": "<name>", "type": "<greenfield/maintenance/debugging/refactoring/exploration>", "insight": "<observation>", "recommendation": "<advice>", "underutilized": "<features>", "recommended_model": {{"model": "<name>", "reason": "<why>"}}}}
+    {{"project": "<name>", "type": "<greenfield/maintenance/debugging/refactoring/exploration>", "insight": "<observation>", "recommendation": "<advice>", "underutilized": "<features>", "recommended_model": {{"model": "<name>", "reason": "<why>"}}, "recommended_tool": {{"tool": "<IDE/tool name>", "reason": "<why this tool fits this project type>"}}}}
   ],
   "workflow": {{
     "current": "<2-3 sentence current workflow assessment>",
@@ -294,6 +294,15 @@ Rules:
 - Cross-reference "feature_detection" with session patterns for missing_features. If feature_detection shows agents/commands/rules/skills are configured, do NOT flag them as missing. If feature_detection shows they're NOT configured but session patterns suggest they'd help, flag them with evidence.
 - Be specific and actionable, not generic
 - Return ONLY the JSON object, no markdown fences, no explanation
+- **project_insights MUST include EVERY project from project_details** — not just the top one. If there are 5 projects, return 5 project_insight entries. Each must have all fields including recommended_model and recommended_tool.
+- **ONLY recommend models that actually exist for the tool being used:**
+  - Claude Code: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
+  - Cursor: gpt-4o, claude-sonnet-4-6, claude-haiku-4-5, gemini-2.5-pro (or models from model_usage data)
+  - Copilot: gpt-4o, claude-sonnet-4-6, o3-mini
+  - Codex: codex-mini, o4-mini, o3
+  - Kiro: claude-sonnet-4-6
+  - NEVER invent model names like "gpt-3.5-codex" or "gpt-5.3". Use ONLY the names listed above or seen in model_usage data.
+- **recommended_tool**: Recommend the best IDE/tool for each project type (e.g. Cursor for rapid prototyping, Claude Code for CLI-heavy workflows, Kiro for spec-driven features, Copilot for GitHub-integrated repos). Base this on the project's intent distribution and the tool's strengths from tool_knowledge.
 """
 
 

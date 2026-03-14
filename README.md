@@ -4,11 +4,11 @@
 
 ```
 git clone https://github.com/vicarious11/agenttop && cd agenttop
-./setup.sh      # finds Python, creates venv, installs deps, sets up Ollama
-./run.sh        # opens dashboard at http://localhost:8420
+python3 install.py    # one-time: venv, deps, Ollama, model pull
+./start               # opens http://localhost:8420
 ```
 
-No global installs. No Docker. No API keys. Everything runs locally in a virtualenv.
+Works on **macOS, Linux, and Windows**. Only needs Python 3.10+. No global installs, no Docker, no API keys. Everything runs locally in a virtualenv.
 
 ![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
@@ -487,8 +487,8 @@ agenttop/
 │   ├── test_collector_features.py # All collectors' get_feature_config() (30 tests)
 │   ├── test_optimizer.py        # Optimizer unit tests
 │   └── ...
-├── setup.sh                     # One-command setup (venv + deps + Ollama)
-├── run.sh                       # Generated launcher (created by setup.sh)
+├── install.py                   # Cross-platform setup (Windows/macOS/Linux)
+├── start                        # Generated launcher (created by install.py)
 ├── pyproject.toml               # Project metadata + dependencies
 └── CLAUDE.md                    # Project instructions for AI assistants
 ```
@@ -637,7 +637,7 @@ _collectors = [
 ```bash
 git clone https://github.com/vicarious11/agenttop
 cd agenttop
-./setup.sh --no-ollama    # skip Ollama for dev
+python3 install.py --no-ollama    # skip Ollama for dev
 source .venv/bin/activate
 pytest                    # 192 tests
 ruff check src/           # lint
