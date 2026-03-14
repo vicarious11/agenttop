@@ -123,7 +123,7 @@ cat > "$SCRIPT_DIR/run.sh" << 'LAUNCHER'
 #!/usr/bin/env bash
 # Launch agenttop — auto-activates the venv, no thinking required
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$DIR/.venv/bin/python" -m uvicorn agenttop.web.server:app --host 127.0.0.1 --port 8420 "$@"
+PYTHONPATH="$DIR/src" exec "$DIR/.venv/bin/python" -m uvicorn agenttop.web.server:app --host 127.0.0.1 --port 8420 "$@"
 LAUNCHER
 chmod +x "$SCRIPT_DIR/run.sh"
 
@@ -193,23 +193,10 @@ if command -v ollama >/dev/null 2>&1; then
             ollama pull "$OLLAMA_MODEL"
             echo "  [ok] Model $OLLAMA_MODEL ready"
         fi
-        sleep 0.5
-    done
-fi
-
-if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
-    echo "  [warn] Could not start Ollama server automatically."
-    echo "  Run 'ollama serve' manually, then 'agenttop web'."
-    exit 0
-fi
-
-# Pull model if needed
-if ollama show "$OLLAMA_MODEL" >/dev/null 2>&1; then
-    echo "  [ok] Model $OLLAMA_MODEL ready"
-else
-    echo "  Pulling $OLLAMA_MODEL (one-time download, ~3GB)..."
-    ollama pull "$OLLAMA_MODEL"
-    echo "  [ok] Model $OLLAMA_MODEL ready"
+    else
+        echo "  [warn] Could not start Ollama server automatically."
+        echo "  Run 'ollama serve' manually, then 'agenttop web'."
+    fi
 fi
 
 echo ""
