@@ -15,7 +15,7 @@ from agenttop.collectors.kiro import KiroCollector
 from agenttop.config import load_config
 from agenttop.db import EventStore
 from agenttop.tui.analysis import AnalysisView
-from agenttop.tui.dashboard import DashboardView
+from agenttop.tui.dashboard import DashboardView, StatsBar
 from agenttop.tui.knowledge_graph import KnowledgeGraphView
 from agenttop.tui.sessions import SessionsView
 from agenttop.tui.suggestions import SuggestionsView
@@ -117,4 +117,5 @@ class AgentTop(App):
 
     def _refresh_data(self) -> None:
         dashboard = self.query_one(DashboardView)
-        dashboard.refresh_stats(self.collectors, self.days)
+        budget = self.config.llm.max_budget_per_day if self.days <= 1 else 0.0
+        dashboard.refresh_stats(self.collectors, self.days, budget)

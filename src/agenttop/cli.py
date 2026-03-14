@@ -87,7 +87,12 @@ def stats(days: int) -> None:
         ("Copilot", CopilotCollector()),
     ]
 
-    from agenttop.formatting import human_cost, human_tokens
+    from agenttop.formatting import (
+        check_budget,
+        format_budget_message,
+        human_cost,
+        human_tokens,
+    )
 
     total_tokens = 0
     total_cost = 0.0
@@ -120,6 +125,14 @@ def stats(days: int) -> None:
         f"{human_cost(total_cost)} est. cost"
     )
     click.echo("=" * 60)
+
+    # Check budget and show warning if needed
+    budget = config.llm.max_budget_per_day
+    if budget > 0:
+        budget_info = check_budget(total_cost, budget)
+        if budget_info.status != "ok":
+            click.echo(format_budget_message(budget_info))
+
     click.echo("Run `agenttop` for the interactive dashboard.")
 
 

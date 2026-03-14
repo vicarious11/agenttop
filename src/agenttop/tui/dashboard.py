@@ -9,7 +9,12 @@ from textual_plotext import PlotextPlot
 
 from agenttop.collectors.base import BaseCollector
 from agenttop.db import EventStore
-from agenttop.formatting import human_cost, human_number, human_tokens
+from agenttop.formatting import (
+    check_budget,
+    human_cost,
+    human_number,
+    human_tokens,
+)
 from agenttop.models import ToolStats
 
 RANGE_LABELS = {0: "All time", 1: "Today", 7: "Last 7 days", 30: "Last 30 days"}
@@ -59,7 +64,12 @@ class StatsBar(Static):
     }
     """
 
-    def update_stats(self, stats_list: list[ToolStats], days: int = 0) -> None:
+    def update_stats(
+        self,
+        stats_list: list[ToolStats],
+        days: int = 0,
+        budget: float = 0.0,
+    ) -> None:
         total_tokens = sum(s.tokens_today for s in stats_list)
         total_cost = sum(s.estimated_cost_today for s in stats_list)
         total_sessions = sum(s.sessions_today for s in stats_list)
@@ -67,12 +77,27 @@ class StatsBar(Static):
         active = sum(1 for s in stats_list if s.status == "active")
 
         label = RANGE_LABELS.get(days, f"Last {days}d")
-        self.update(
+
+        # Build base message
+        base_message = (
             f"  {label}: {human_tokens(total_tokens)} tokens | "
             f"{human_cost(total_cost)} est. cost | "
             f"{total_sessions} sessions | {human_number(total_messages)} messages | "
-            f"{active} active  "
-            f"[dim]\\[1] today [2] 7d [3] 30d [4] all[/]"
+            f"{active} active"
+        )
+
+        # Add budget indicator if budget is configured
+        if self._budget > 0:
+            budget_info = check_budget(total_cost, self._budget)
+            if budget_info.status == "alert":
+                budget_msg = f" | [red]⚠️ OVER BUDGET ({budget_info.ratio:.0%})[/red]"
+                base_message += budget_msg
+            elif budget_info.status == "warning":
+                budget_msg = f" | [yellow]⚠️ {budget_info.ratio:.0%} of budget[/yellow]"
+                base_message += budget_msg
+
+        self.update(
+            base_message + "  [dim]\\[1] today [2] 7d [3] 30d [4] all[/]"
         )
 
 
@@ -235,11 +260,13 @@ class DashboardView(Static):
         collectors: list[BaseCollector],
         db: EventStore,
         days: int = 0,
+        budget: float = 0.0,
     ) -> None:
         super().__init__()
         self._collectors = collectors
         self._db = db
         self._days = days
+        self._budget = budget
 
     def compose(self) -> ComposeResult:
         yield StatsBar()
@@ -295,7 +322,7 @@ class DashboardView(Static):
 
         # Update charts
         try:
-            self.query_one(StatsBar).update_stats(all_stats, self._days)
+            self.query_one(StatsBar).update_stats(all_stats, self._days, self._budget)
             self.query_one(TokenFlowChart).replot(all_stats)
             self.query_one(ToolBreakdownChart).replot(all_stats)
         except Exception:

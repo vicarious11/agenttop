@@ -1944,3 +1944,74 @@ html, body {
 @media (max-width: 700px) {
   .tool-bar { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   BUDGET CARD
+   ══════════════════════════════════════════════════════════ */
+
+.budget-card {
+  min-width: 100px;
+  border-color: var(--neon-green) !important;
+  background: rgba(0,255,136,0.03);
+  position: relative;
+}
+
+.budget-card[data-status="alert"] {
+  border-color: var(--neon-red) !important;
+  background: rgba(255,68,68,0.05);
+}
+
+.budget-card[data-status="warning"] {
+  border-color: var(--neon-yellow) !important;
+  background: rgba(255,238,0,0.04);
+}
+
+.budget-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.budget-bar {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.1);
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.budget-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s var(--ease-out);
+  box-shadow: 0 0 4px currentColor;
+}
+
+.budget-card[data-status="alert"] .budget-bar-fill {
+  box-shadow: 0 0 8px var(--neon-red), 0 0 16px rgba(255,68,68,0.3);
+  animation: budget-pulse 2s ease-in-out infinite;
+}
+
+.budget-card[data-status="warning"] .budget-bar-fill {
+  box-shadow: 0 0 4px var(--neon-yellow), 0 0 8px rgba(255,238,0,0.2);
+}
+
+@keyframes budget-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.budget-detail {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  margin-top: 4px;
+  text-align: center;
+}
+
+.budget-card[data-status="alert"] .budget-detail {
+  color: var(--neon-red);
+}
