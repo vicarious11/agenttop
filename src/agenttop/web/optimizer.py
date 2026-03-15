@@ -392,33 +392,9 @@ def _analyze_prompts(sessions: list[Session]) -> dict[str, Any]:
         "avg_length": round(sum(lengths) / len(lengths)),
     }
 
-    # Correction spirals
-    correction_words = [
-        "no", "wrong", "actually", "instead", "not what",
-        "undo", "revert", "try again",
-    ]
-    spiral_sessions: list[dict[str, Any]] = []
-    for sid, prompts in session_prompts.items():
-        if len(prompts) < 3:
-            continue
-        corrections = sum(
-            1 for p in prompts
-            if any(w in p.lower() for w in correction_words) and len(p) < 100
-        )
-        if corrections >= 3 and corrections / len(prompts) > 0.15:
-            s = next((s for s in sessions if s.id == sid), None)
-            if s:
-                spiral_sessions.append({
-                    "project": s.project.split("/")[-1] if s.project else "unknown",
-                    "messages": s.message_count,
-                    "corrections": corrections,
-                    "correction_rate": round(corrections / len(prompts) * 100),
-                    "first_prompt": prompts[0][:120] if prompts else "",
-                    "tokens_wasted": s.total_tokens,
-                })
-    result["correction_spirals"] = sorted(
-        spiral_sessions, key=lambda x: x["corrections"], reverse=True,
-    )[:10]
+    # Correction spirals — populated by LLM-based conversation analysis
+    # (see AIUsageOptimizer._detect_correction_spirals)
+    result["correction_spirals"] = []
 
     # Repeated prompts (skill candidates)
     prompt_counter = Counter(p for p in all_prompts if len(p) > 15)
@@ -470,6 +446,7 @@ def _analyze_anti_patterns(
             "examples": [
                 f"{sp['project']}: {sp['corrections']} corrections in {sp['messages']} msgs "
                 f"({sp['correction_rate']}% rate, {sp['tokens_wasted']:,} tokens)"
+                + (f" — {sp['what_went_wrong']}" if sp.get("what_went_wrong") else "")
                 for sp in spirals[:3]
             ],
         })
@@ -1032,12 +1009,145 @@ class AIUsageOptimizer:
             stats, sessions, model_usage, self._claude, feature_configs,
         )
 
+        # LLM-based conversation analysis: detect correction spirals
+        # by reading actual conversation flow, not keyword matching
+        spirals = self._detect_correction_spirals(sessions)
+        profile["prompt_analysis"]["correction_spirals"] = spirals
+        # Recompute anti-patterns with LLM-detected spirals
+        profile["anti_patterns"] = _analyze_anti_patterns(
+            sessions, profile["prompt_analysis"],
+        )
+
         # Get LLM analysis
         llm_result = self._get_llm_analysis(profile)
 
         # Merge: Python-computed metrics (always accurate) + LLM intelligence
         result = self._merge_results(profile, llm_result)
         return result
+
+    def _detect_correction_spirals(
+        self,
+        sessions: list[Session],
+    ) -> list[dict[str, Any]]:
+        """Use the LLM to analyze actual conversation flow and detect correction spirals.
+
+        Instead of matching keywords like "no" or "wrong", sends the user's
+        prompt sequence to the LLM to identify sessions where the user was
+        fighting, redirecting, or repeatedly correcting the AI.
+        """
+        # Filter to sessions with enough messages to have spirals
+        candidates = [
+            s for s in sessions
+            if len(s.prompts) >= 5 and s.message_count >= 8
+        ]
+        if not candidates:
+            return []
+
+        # Sort by message count descending — analyze the longest sessions first
+        candidates.sort(key=lambda s: s.message_count, reverse=True)
+        candidates = candidates[:15]  # cap to control token usage
+
+        # Build conversation summaries for the LLM
+        session_data: list[dict[str, Any]] = []
+        for s in candidates:
+            # Take up to 12 prompts, truncated, to show the conversation flow
+            prompts_sample = [p[:120] for p in s.prompts[:12]]
+            session_data.append({
+                "id": s.id[:12],
+                "tool": s.tool.value,
+                "project": s.project.split("/")[-1] if s.project else "unknown",
+                "message_count": s.message_count,
+                "total_tokens": s.total_tokens,
+                "user_prompts": prompts_sample,
+            })
+
+        prompt = f"""Analyze these AI coding sessions. Each entry contains the user's prompts in order (assistant responses are not shown, but you can infer the flow).
+
+Identify sessions where the user is stuck in a CORRECTION SPIRAL — repeatedly redirecting, correcting, or fighting the AI instead of making progress. Look for:
+- User rephrasing the same request multiple times
+- User expressing frustration or disagreement with AI output
+- User undoing or reverting AI changes
+- Back-and-forth where the conversation isn't progressing
+- User having to re-explain what they want
+
+For each session with a correction spiral, explain WHAT went wrong (e.g. "user asked for X but AI kept doing Y", "unclear initial prompt led to 5 rounds of correction").
+
+Return ONLY this JSON (no other text):
+{{
+  "spirals": [
+    {{
+      "id": "session_id",
+      "corrections": <number of correction messages>,
+      "correction_rate": <percentage of prompts that are corrections>,
+      "what_went_wrong": "<1-sentence explanation of the spiral>"
+    }}
+  ]
+}}
+
+If no sessions have correction spirals, return {{"spirals": []}}.
+
+Sessions to analyze:
+{json.dumps(session_data, indent=2, default=str)}"""
+
+        system_msg = (
+            "You are a conversation analyst. Analyze user prompt sequences "
+            "to detect correction spirals. Be precise — only flag sessions "
+            "where the user is genuinely fighting the AI, not normal iteration. "
+            "Return ONLY valid JSON, no markdown fences, no explanation."
+        )
+
+        parsed = None
+        for attempt in range(3):
+            raw = get_completion(
+                prompt,
+                self._config.llm,
+                system=system_msg,
+                max_tokens=2000,
+            )
+
+            if raw.startswith("[error]"):
+                logging.warning("Correction spiral LLM call failed: %s", raw)
+                return []
+
+            try:
+                parsed = self._extract_json(raw)
+                break
+            except (json.JSONDecodeError, IndexError, KeyError):
+                logging.debug(
+                    "Correction spiral JSON parse failed (attempt %d/3)",
+                    attempt + 1,
+                )
+
+        if parsed is None:
+            logging.warning("Correction spiral detection failed after 3 attempts")
+            return []
+
+        # Map LLM results back to session data
+        spiral_results: list[dict[str, Any]] = []
+        for spiral in parsed.get("spirals", []):
+            sid_prefix = spiral.get("id", "")
+            matched = next(
+                (s for s in candidates if s.id[:12] == sid_prefix), None,
+            )
+            if matched:
+                spiral_results.append({
+                    "project": (
+                        matched.project.split("/")[-1]
+                        if matched.project else "unknown"
+                    ),
+                    "messages": matched.message_count,
+                    "corrections": spiral.get("corrections", 0),
+                    "correction_rate": spiral.get("correction_rate", 0),
+                    "what_went_wrong": spiral.get("what_went_wrong", ""),
+                    "first_prompt": (
+                        matched.prompts[0][:120] if matched.prompts else ""
+                    ),
+                    "tokens_wasted": matched.total_tokens,
+                })
+
+        return sorted(
+            spiral_results, key=lambda x: x["corrections"], reverse=True,
+        )[:10]
 
     @staticmethod
     def _extract_json(raw: str) -> dict[str, Any]:
