@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -1038,11 +1039,48 @@ class AIUsageOptimizer:
         result = self._merge_results(profile, llm_result)
         return result
 
+    @staticmethod
+    def _extract_json(raw: str) -> dict[str, Any]:
+        """Extract a JSON object from potentially noisy LLM output.
+
+        Handles markdown fences, thinking tags, and extra text around JSON.
+        """
+        cleaned = raw.strip()
+
+        # Strip <think>...</think> blocks (some models emit reasoning)
+        cleaned = re.sub(
+            r"<think>.*?</think>", "", cleaned, flags=re.DOTALL,
+        ).strip()
+
+        # Strip markdown code fences
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+
+        # Try direct parse first
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: find the outermost { ... } in the response
+        brace_start = cleaned.find("{")
+        brace_end = cleaned.rfind("}")
+        if brace_start != -1 and brace_end > brace_start:
+            return json.loads(cleaned[brace_start : brace_end + 1])
+
+        raise json.JSONDecodeError("No JSON object found", cleaned, 0)
+
     def _get_llm_analysis(
         self,
         profile: dict[str, Any],
     ) -> dict[str, Any]:
-        """Get LLM-powered analysis. Returns parsed JSON or error dict."""
+        """Get LLM-powered analysis. Returns parsed JSON or error dict.
+
+        Retries up to 2 times on invalid JSON to handle flaky model output.
+        """
         active_tool_ids = {
             t["tool"] for t in profile.get("active_tools", [])
         }
@@ -1052,36 +1090,40 @@ class AIUsageOptimizer:
         input_json = json.dumps(llm_input, indent=2, default=str)
 
         prompt = OPTIMIZER_PROMPT.format(input_json=input_json)
-
-        raw = get_completion(
-            prompt,
-            self._config.llm,
-            system=(
-                "You are an expert AI coding tool optimizer. "
-                "Analyze the structured usage data and return ONLY valid JSON. "
-                "No markdown fences, no explanation — just the JSON object."
-            ),
-            max_tokens=4000,
+        system_msg = (
+            "You are an expert AI coding tool optimizer. "
+            "Analyze the structured usage data and return ONLY valid JSON. "
+            "No markdown fences, no explanation — just the JSON object."
         )
 
-        if raw.startswith("[error]"):
-            return {"error": raw, "source": "error"}
+        last_error = ""
+        for attempt in range(3):
+            raw = get_completion(
+                prompt,
+                self._config.llm,
+                system=system_msg,
+                max_tokens=4000,
+            )
 
-        try:
-            cleaned = raw.strip()
-            # Strip markdown code fences if present
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1]
-            if cleaned.endswith("```"):
-                cleaned = cleaned.rsplit("```", 1)[0]
-            parsed = json.loads(cleaned.strip())
-            parsed["source"] = "llm"
-            return parsed
-        except (json.JSONDecodeError, IndexError, KeyError):
-            return {
-                "error": "LLM returned invalid JSON. Try again or switch models.",
-                "source": "error",
-            }
+            if raw.startswith("[error]"):
+                return {"error": raw, "source": "error"}
+
+            try:
+                parsed = self._extract_json(raw)
+                parsed["source"] = "llm"
+                return parsed
+            except (json.JSONDecodeError, IndexError, KeyError):
+                last_error = raw[:200] if raw else "empty response"
+                logging.debug(
+                    "LLM JSON parse failed (attempt %d/3): %s",
+                    attempt + 1,
+                    last_error,
+                )
+
+        return {
+            "error": "LLM returned invalid JSON after 3 attempts. Try a different model.",
+            "source": "error",
+        }
 
     def _merge_results(
         self,

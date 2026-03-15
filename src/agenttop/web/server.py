@@ -219,8 +219,12 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
             await asyncio.sleep(0.5)
             if not _optimize_running:
                 break
-        if _cached_optimize is not None:
+        if (
+            _cached_optimize is not None
+            and "error" not in _cached_optimize
+        ):
             return JSONResponse(_cached_optimize)
+        # Precompute failed — fall through to fresh analysis
 
     # Run fresh analysis (retries if previous result was an error)
     try:
