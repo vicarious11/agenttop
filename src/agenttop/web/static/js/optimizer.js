@@ -587,6 +587,7 @@ const Optimizer = {
             <div class="pi-stats">${pi.insight}</div>
             <div class="pi-rec">${pi.recommendation}</div>
             ${pi.recommended_model ? `<div class="pi-model-rec"><span class="pi-model-label">Recommended model:</span> <strong>${pi.recommended_model.model}</strong> — ${pi.recommended_model.reason}</div>` : ''}
+            ${pi.recommended_tool ? `<div class="pi-model-rec"><span class="pi-model-label">Recommended IDE:</span> <strong>${pi.recommended_tool.tool}</strong> — ${pi.recommended_tool.reason}</div>` : ''}
             ${pi.underutilized && pi.underutilized !== 'None detected' ? `<div class="pi-underutil">Underutilized: ${pi.underutilized}</div>` : ''}
           </div>
         `;

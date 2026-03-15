@@ -156,11 +156,28 @@ def _run_optimize(days: int = 0) -> dict[str, Any]:
 
 
 @app.on_event("startup")
-async def _precompute_optimize() -> None:
-    """Run LLM analysis at boot so the optimizer is instant."""
+async def _startup_tasks() -> None:
+    """Run LLM analysis + KB refresh at boot (non-blocking)."""
     global _cached_optimize, _cached_optimize_time, _optimize_running
-    import time
 
+    # Background: refresh knowledge base (daily, graceful if offline)
+    async def _kb_refresh_loop() -> None:
+        from agenttop.web import kb_refresh
+        from agenttop.web.optimizer import KNOWLEDGE_BASE
+
+        while True:
+            try:
+                updated = await kb_refresh.refresh_kb(KNOWLEDGE_BASE)
+                if updated is not KNOWLEDGE_BASE:
+                    KNOWLEDGE_BASE.update(updated)
+                    logging.info("Knowledge base refreshed with %d tools", len(updated))
+            except Exception as e:
+                logging.debug("KB refresh failed (will retry): %s", e)
+            await asyncio.sleep(kb_refresh.REFRESH_INTERVAL)
+
+    asyncio.create_task(_kb_refresh_loop())
+
+    # Background: precompute optimizer result
     async def _bg() -> None:
         global _cached_optimize, _cached_optimize_time, _optimize_running
         _optimize_running = True
@@ -202,8 +219,12 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
             await asyncio.sleep(0.5)
             if not _optimize_running:
                 break
-        if _cached_optimize is not None:
+        if (
+            _cached_optimize is not None
+            and "error" not in _cached_optimize
+        ):
             return JSONResponse(_cached_optimize)
+        # Precompute failed — fall through to fresh analysis
 
     # Run fresh analysis (retries if previous result was an error)
     try:
@@ -227,6 +248,27 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
         _cached_optimize = result
         _cached_optimize_time = time.time()
     return JSONResponse(result)
+
+
+# --- KB refresh manual trigger ---
+
+
+@app.post("/api/kb-refresh")
+async def api_kb_refresh() -> JSONResponse:
+    """Manually trigger knowledge base refresh."""
+    from agenttop.web import kb_refresh
+    from agenttop.web.optimizer import KNOWLEDGE_BASE
+
+    try:
+        updated = await kb_refresh.refresh_kb(KNOWLEDGE_BASE)
+        new_count = sum(len(t.get("features", [])) for t in updated.values())
+        return JSONResponse({
+            "status": "ok",
+            "tools": len(updated),
+            "total_features": new_count,
+        })
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)})
 
 
 # --- WebSocket for real-time updates ---

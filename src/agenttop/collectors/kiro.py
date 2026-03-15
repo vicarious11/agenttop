@@ -49,28 +49,27 @@ class KiroCollector(BaseCollector):
         if not db_path:
             return []
         try:
-            conn = sqlite3.connect(str(db_path))
-            conn.row_factory = sqlite3.Row
-            tables = [r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()]
-            seen: set[tuple[str, ...]] = set()
-            results: list[dict[str, Any]] = []
-            for table in tables:
-                for pattern in _KIRO_KEY_PATTERNS:
-                    try:
-                        for r in conn.execute(
-                            f"SELECT * FROM [{table}] WHERE key LIKE ? LIMIT 1000",
-                            (f"%{pattern}%",),
-                        ).fetchall():
-                            key = (table, dict(r).get("key", ""))
-                            if key not in seen:
-                                seen.add(key)
-                                results.append({"table": table, **dict(r)})
-                    except sqlite3.Error:
-                        continue
-            conn.close()
-            return results
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+                tables = [r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()]
+                seen: set[tuple[str, ...]] = set()
+                results: list[dict[str, Any]] = []
+                for table in tables:
+                    for pattern in _KIRO_KEY_PATTERNS:
+                        try:
+                            for r in conn.execute(
+                                f"SELECT * FROM [{table}] WHERE key LIKE ? LIMIT 1000",
+                                (f"%{pattern}%",),
+                            ).fetchall():
+                                key = (table, dict(r).get("key", ""))
+                                if key not in seen:
+                                    seen.add(key)
+                                    results.append({"table": table, **dict(r)})
+                        except sqlite3.Error:
+                            continue
+                return results
         except (sqlite3.Error, OSError) as exc:
             logger.debug("Failed to read Kiro state DB: %s", exc)
             return []

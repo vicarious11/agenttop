@@ -4,11 +4,11 @@
 
 ```
 git clone https://github.com/vicarious11/agenttop && cd agenttop
-./setup.sh      # finds Python, creates venv, installs deps, sets up Ollama
-./run.sh        # opens dashboard at http://localhost:8420
+python3 install.py    # one-time: venv, deps, Ollama, model pull
+./start               # opens http://localhost:8420
 ```
 
-No global installs. No Docker. No API keys. Everything runs locally in a virtualenv.
+Works on **macOS, Linux, and Windows**. Only needs Python 3.10+. No global installs, no Docker, no API keys. Everything runs locally in a virtualenv.
 
 ![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
@@ -389,6 +389,32 @@ The optimizer is not a wrapper around an LLM prompt. It's a hybrid system where 
 
 **Key design principle:** If the LLM is unavailable or returns garbage, all Python-computed metrics (anti-patterns, cost forensics, prompt analysis) still render in the dashboard. The LLM only adds grades, recommendations, and the developer profile.
 
+### Knowledge Base Architecture
+
+The optimizer includes a curated `KNOWLEDGE_BASE` dict with per-tool entries, each containing:
+
+- **features** — name, description, impact, detection hint, **setup guide** (step-by-step), **prompt tips** (good/bad examples)
+- **anti_patterns** — common mistakes per tool
+- **cost_benchmarks** — typical daily/monthly spend (Claude Code)
+
+This is hardcoded and always available offline. The `kb_refresh.py` module augments it daily:
+
+```
+Hardcoded KNOWLEDGE_BASE (always works)
+         │
+         ├── Startup: check ~/.agenttop/knowledge_base.json cache
+         │   ├── Cache fresh (<24h)? → merge cached updates
+         │   └── Cache stale/missing? → fetch from GitHub repos
+         │       ├── Success? → save cache + merge
+         │       └── No internet? → use hardcoded (fine)
+         │
+         └── Every 24h: repeat refresh cycle (background, non-blocking)
+```
+
+**What the LLM sees:** For each project in your data, the LLM receives the tool's KB features + your actual usage metrics. It produces per-project `recommended_model` (constrained to real models per tool) and `recommended_tool` (which IDE fits best for each project type).
+
+**Model constraints:** The prompt explicitly lists valid models per tool (e.g., Claude Code: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`). The LLM cannot invent model names.
+
 **Feature detection pipeline:** Each collector's `get_feature_config()` returns ground-truth data about what the user has configured (e.g., "16 agents, 40 commands, 13 rules, 65 skills, 2 MCP servers"). This flows through `server.py` → `optimizer.analyze()` → `build_user_profile()` → `_build_llm_input()` → LLM prompt. The LLM cross-references this with session patterns to produce accurate "missing features" recommendations — it won't tell you to set up CLAUDE.md if you already have one.
 
 ---
@@ -431,9 +457,12 @@ Built by `GraphBuilder` in `graph_builder.py`. Data sources:
 | `/api/hours` | GET | Hourly token distribution merged from all tools | `days` (0=all) |
 | `/api/graph` | GET | D3-compatible knowledge graph (nodes + edges) | `days` (0=all) |
 | `/api/optimize` | POST | Full optimizer analysis (Python metrics + LLM) | Body: `{"days": 0}` |
+| `/api/kb-refresh` | POST | Manually trigger knowledge base refresh from official docs | — |
 | `/ws` | WebSocket | Real-time stat updates (send days preference as text) | — |
 
 **Optimizer caching:** The first `/api/optimize` call runs at server startup in the background. Subsequent calls return the cached result for up to 5 minutes, then re-run.
+
+**Knowledge base refresh:** The `KNOWLEDGE_BASE` (per-tool features, setup guides, anti-patterns, prompt tips) is hardcoded and always works offline. On startup and every 24 hours, a background task fetches updates from official GitHub repos (README changes, new features) and merges them into the in-memory KB. Cache stored at `~/.agenttop/knowledge_base.json`. Manual trigger: `POST /api/kb-refresh`.
 
 ---
 
@@ -457,8 +486,9 @@ agenttop/
 │   │   ├── recommend.py         # Recommendation generation
 │   │   └── workflow.py          # Workflow analysis
 │   ├── web/                     # Web dashboard
-│   │   ├── server.py            # FastAPI server + API endpoints (280 lines)
-│   │   ├── optimizer.py         # Hybrid optimizer engine (1089 lines)
+│   │   ├── server.py            # FastAPI server + API endpoints + KB refresh
+│   │   ├── optimizer.py         # Hybrid optimizer engine + KNOWLEDGE_BASE
+│   │   ├── kb_refresh.py        # Background KB refresh from official docs
 │   │   ├── graph_builder.py     # D3 knowledge graph builder (447 lines)
 │   │   └── static/              # Frontend SPA
 │   │       ├── index.html       # Single page shell
@@ -487,8 +517,8 @@ agenttop/
 │   ├── test_collector_features.py # All collectors' get_feature_config() (30 tests)
 │   ├── test_optimizer.py        # Optimizer unit tests
 │   └── ...
-├── setup.sh                     # One-command setup (venv + deps + Ollama)
-├── run.sh                       # Generated launcher (created by setup.sh)
+├── install.py                   # Cross-platform setup (Windows/macOS/Linux)
+├── start                        # Generated launcher (created by install.py)
 ├── pyproject.toml               # Project metadata + dependencies
 └── CLAUDE.md                    # Project instructions for AI assistants
 ```
@@ -637,7 +667,7 @@ _collectors = [
 ```bash
 git clone https://github.com/vicarious11/agenttop
 cd agenttop
-./setup.sh --no-ollama    # skip Ollama for dev
+python3 install.py --no-ollama    # skip Ollama for dev
 source .venv/bin/activate
 pytest                    # 192 tests
 ruff check src/           # lint

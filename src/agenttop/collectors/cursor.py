@@ -18,12 +18,15 @@ These are conservative estimates based on typical Cursor usage patterns.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from agenttop.collectors.base import BaseCollector
 from agenttop.config import CURSOR_DIR
@@ -49,7 +52,7 @@ _COST_PER_TOKEN: dict[str, float] = {
 
 # Directories that are containers, not project names
 _CONTAINER_DIRS = {
-    "repo", "repos", "desktop", "projects", "dev", "src", "code", "work", "documents",
+    "users", "repo", "repos", "desktop", "projects", "dev", "src", "code", "work", "documents",
 }
 
 
@@ -202,11 +205,12 @@ class CursorCollector(BaseCollector):
     def _query(self, sql: str, params: tuple = ()) -> list[dict]:
         """Execute a query and return rows as dicts. Returns [] on error."""
         try:
-            conn = self._connect()
-            rows = conn.execute(sql, params).fetchall()
-            conn.close()
-            return [dict(r) for r in rows]
-        except (sqlite3.Error, OSError):
+            with sqlite3.connect(str(self._db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(sql, params).fetchall()
+                return [dict(r) for r in rows]
+        except (sqlite3.Error, OSError) as exc:
+            logger.debug("Cursor DB query failed: %s", exc)
             return []
 
     # -- Data access --
@@ -480,10 +484,11 @@ class CursorCollector(BaseCollector):
         except Exception:
             result["ai_vs_human"] = {}
 
-        # Table row counts
+        # Table row counts (allowlist — safe from injection)
+        _ALLOWED_TABLES = frozenset({"ai_code_hashes", "conversation_summaries", "scored_commits"})
         table_counts: dict[str, int] = {}
-        for table in ("ai_code_hashes", "conversation_summaries", "scored_commits"):
-            rows = self._query(f"SELECT COUNT(*) as cnt FROM {table}")  # noqa: S608
+        for table in _ALLOWED_TABLES:
+            rows = self._query(f"SELECT COUNT(*) as cnt FROM {table}")
             if rows:
                 table_counts[table] = rows[0].get("cnt", 0)
         if table_counts:
