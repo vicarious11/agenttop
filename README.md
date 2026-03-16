@@ -19,6 +19,14 @@ agenttop web
 
 That's it. Two commands. Works immediately — auto-installs a local LLM, pulls the model, opens the dashboard. No API keys, no config, no signup.
 
+<div align="center">
+
+https://github.com/vicarious11/agenttop/raw/main/assets/screenshots/demo.mp4
+
+*Real usage data from Claude Code, Cursor, Kiro, Codex, and Copilot — force-directed knowledge graph, live token counters, cost forensics, and AI-powered optimization recommendations. All running locally, zero telemetry.*
+
+</div>
+
 ![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
 ## What it does
