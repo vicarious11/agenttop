@@ -21,11 +21,13 @@ That's it. Two commands. Works immediately — auto-installs a local LLM, pulls 
 
 <div align="center">
 
-![agenttop dashboard — knowledge graph, model usage, sessions, cost breakdown, and AI optimizer](assets/screenshots/demo-preview.gif)
+![agenttop demo](assets/screenshots/demo-preview.gif)
 
-**[Watch the full demo (45s)](assets/screenshots/demo.mp4)** — knowledge graph, live counters, anti-pattern detection, cost forensics, grades, recommendations, and per-project intelligence.
+**[Watch full demo (45s)](assets/screenshots/demo.mp4)**
 
 </div>
+
+![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
 ## What it does
 
