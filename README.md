@@ -21,13 +21,11 @@ That's it. Two commands. Works immediately — auto-installs a local LLM, pulls 
 
 <div align="center">
 
-https://github.com/vicarious11/agenttop/raw/main/assets/screenshots/demo.mp4
+![agenttop dashboard — knowledge graph, model usage, sessions, cost breakdown, and AI optimizer](assets/screenshots/demo-preview.gif)
 
-*Real usage data from Claude Code, Cursor, Kiro, Codex, and Copilot — force-directed knowledge graph, live token counters, cost forensics, and AI-powered optimization recommendations. All running locally, zero telemetry.*
+**[Watch the full demo (45s)](assets/screenshots/demo.mp4)** — knowledge graph, live counters, anti-pattern detection, cost forensics, grades, recommendations, and per-project intelligence.
 
 </div>
-
-![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
 ## What it does
 
