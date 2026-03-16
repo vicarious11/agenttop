@@ -155,56 +155,54 @@ class CodexCollector(BaseCollector):
 
         result: dict[str, Any] = {}
         try:
-            conn = sqlite3.connect(str(db_path))
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.row_factory = sqlite3.Row
+                cur = conn.cursor()
 
-            # Discover which tables exist
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-            tables = {row[0] for row in cursor.fetchall()}
+                # Discover which tables exist
+                cur.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+                tables = {row[0] for row in cur.fetchall()}
 
-            if "automations" in tables:
-                cursor.execute("SELECT count(*) as cnt FROM automations")
-                count = cursor.fetchone()[0]
-                names: list[str] = []
-                statuses: list[str] = []
-                cursor.execute("SELECT name, status FROM automations")
-                for row in cursor.fetchall():
-                    if row[0]:
-                        names.append(str(row[0]))
-                    if row[1]:
-                        statuses.append(str(row[1]))
-                result["automations"] = {
-                    "count": count,
-                    "names": names,
-                    "statuses": statuses,
-                }
+                if "automations" in tables:
+                    cur.execute("SELECT count(*) as cnt FROM automations")
+                    count = cur.fetchone()[0]
+                    names: list[str] = []
+                    statuses: list[str] = []
+                    cur.execute("SELECT name, status FROM automations")
+                    for row in cur.fetchall():
+                        if row[0]:
+                            names.append(str(row[0]))
+                        if row[1]:
+                            statuses.append(str(row[1]))
+                    result["automations"] = {
+                        "count": count,
+                        "names": names,
+                        "statuses": statuses,
+                    }
 
-            if "automation_runs" in tables:
-                cursor.execute("SELECT count(*) as cnt FROM automation_runs")
-                run_count = cursor.fetchone()[0]
-                last_run = None
-                try:
-                    cursor.execute("SELECT max(created_at) FROM automation_runs")
-                    raw_ts = cursor.fetchone()[0]
-                    if raw_ts is not None:
-                        last_run = str(raw_ts)
-                except sqlite3.OperationalError:
-                    pass
-                result["automation_runs"] = {
-                    "count": run_count,
-                    "last_run": last_run,
-                }
+                if "automation_runs" in tables:
+                    cur.execute("SELECT count(*) as cnt FROM automation_runs")
+                    run_count = cur.fetchone()[0]
+                    last_run = None
+                    try:
+                        cur.execute("SELECT max(created_at) FROM automation_runs")
+                        raw_ts = cur.fetchone()[0]
+                        if raw_ts is not None:
+                            last_run = str(raw_ts)
+                    except sqlite3.OperationalError:
+                        pass
+                    result["automation_runs"] = {
+                        "count": run_count,
+                        "last_run": last_run,
+                    }
 
-            if "inbox_items" in tables:
-                cursor.execute("SELECT count(*) as cnt FROM inbox_items")
-                result["inbox_items"] = {
-                    "count": cursor.fetchone()[0],
-                }
-
-            conn.close()
+                if "inbox_items" in tables:
+                    cur.execute("SELECT count(*) as cnt FROM inbox_items")
+                    result["inbox_items"] = {
+                        "count": cur.fetchone()[0],
+                    }
         except (sqlite3.Error, OSError) as exc:
             logger.debug("Failed to read codex-dev.db: %s", exc)
         return result
@@ -287,36 +285,35 @@ class CodexCollector(BaseCollector):
         db_path = self._dir / "sqlite" / "codex-dev.db"
         if db_path.exists():
             try:
-                conn = sqlite3.connect(str(db_path))
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT name FROM sqlite_master "
-                    "WHERE type='table' AND name='automation_runs'"
-                )
-                if cursor.fetchone():
-                    cursor.execute(
-                        "SELECT * FROM automation_runs ORDER BY rowid"
+                with sqlite3.connect(str(db_path)) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT name FROM sqlite_master "
+                        "WHERE type='table' AND name='automation_runs'"
                     )
-                    for row in cursor.fetchall():
-                        row_dict = dict(row)
-                        raw_ts = row_dict.get("created_at") or row_dict.get("timestamp")
-                        dt = _parse_timestamp(raw_ts)
-                        if dt is None:
-                            continue
-                        events.append(
-                            Event(
-                                tool=ToolName.CODEX,
-                                event_type="automation_run",
-                                timestamp=dt,
-                                data={
-                                    k: v for k, v in row_dict.items()
-                                    if k not in ("created_at", "timestamp")
-                                },
-                                token_count=TOKENS_PER_MESSAGE,
-                            )
+                    if cur.fetchone():
+                        cur.execute(
+                            "SELECT * FROM automation_runs ORDER BY rowid"
                         )
-                conn.close()
+                        for row in cur.fetchall():
+                            row_dict = dict(row)
+                            raw_ts = row_dict.get("created_at") or row_dict.get("timestamp")
+                            dt = _parse_timestamp(raw_ts)
+                            if dt is None:
+                                continue
+                            events.append(
+                                Event(
+                                    tool=ToolName.CODEX,
+                                    event_type="automation_run",
+                                    timestamp=dt,
+                                    data={
+                                        k: v for k, v in row_dict.items()
+                                        if k not in ("created_at", "timestamp")
+                                    },
+                                    token_count=TOKENS_PER_MESSAGE,
+                                )
+                            )
             except (sqlite3.Error, OSError) as exc:
                 logger.debug("Failed to read automation_runs: %s", exc)
 
@@ -344,12 +341,17 @@ class CodexCollector(BaseCollector):
                 )
             )
 
-        # If no rollout files exist, create sessions from prompt history
+        # If no rollout files exist, create sessions from prompt history.
+        # Use the global state file's mtime as the best available timestamp.
         if not session_files:
+            global_state_path = self._dir / ".codex-global-state.json"
             global_state = self._parse_global_state()
             prompt_history = global_state.get("prompt_history", [])
             if prompt_history:
-                now = datetime.now()
+                try:
+                    file_time = datetime.fromtimestamp(global_state_path.stat().st_mtime)
+                except OSError:
+                    file_time = datetime.now()
                 for idx, prompt in enumerate(prompt_history):
                     prompt_text = str(prompt) if prompt else ""
                     if not prompt_text:
@@ -358,8 +360,8 @@ class CodexCollector(BaseCollector):
                         Session(
                             id=f"codex-prompt-{idx}",
                             tool=ToolName.CODEX,
-                            start_time=now,
-                            end_time=now,
+                            start_time=file_time,
+                            end_time=file_time,
                             message_count=1,
                             total_tokens=TOKENS_PER_MESSAGE,
                             estimated_cost_usd=TOKENS_PER_MESSAGE * COST_PER_TOKEN,
@@ -378,15 +380,19 @@ class CodexCollector(BaseCollector):
             else datetime(2000, 1, 1)
         )
 
+        # Single pass: collect events and derive session count from session_ids
+        session_ids: set[str | None] = set()
         for ev in self.collect_events():
             if ev.timestamp >= cutoff:
                 stats.messages_today += 1
                 stats.tokens_today += TOKENS_PER_MESSAGE
                 stats.hourly_tokens[ev.timestamp.hour] += TOKENS_PER_MESSAGE
+                if ev.session_id:
+                    session_ids.add(ev.session_id)
 
-        for s in self.collect_sessions():
-            if s.start_time >= cutoff:
-                stats.sessions_today += 1
+        # Count session files directly (cheap I/O — just a listdir)
+        session_file_count = len(self._list_session_files())
+        stats.sessions_today = max(len(session_ids), session_file_count)
 
         stats.estimated_cost_today = stats.tokens_today * COST_PER_TOKEN
         if stats.messages_today > 0:
