@@ -670,6 +670,72 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
+## Docker (Isolated Sandbox)
+
+Run agenttop in a container — your AI tool data is mounted read-only, nothing is modified on the host.
+
+```bash
+# One command
+docker compose up -d        # builds + runs, opens http://localhost:8420
+
+# Or manually
+docker build -t agenttop .
+docker run -d --name agenttop \
+  -p 8420:8420 \
+  -v ~/.claude:/data/.claude:ro \
+  -v ~/.cursor:/data/.cursor:ro \
+  -v agenttop-data:/data/.agenttop \
+  agenttop
+```
+
+**With cloud LLM (no Ollama in container):**
+
+```bash
+docker run -d --name agenttop \
+  -p 8420:8420 \
+  -v ~/.claude:/data/.claude:ro \
+  -e AGENTTOP_LLM_PROVIDER=anthropic \
+  -e AGENTTOP_LLM_MODEL=claude-haiku-4-5-20251001 \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  agenttop
+```
+
+**Environment variables for Docker:**
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CLAUDE_DIR` | `/data/.claude` | Path to Claude Code data inside container |
+| `CURSOR_DIR` | `/data/.cursor` | Path to Cursor data inside container |
+| `KIRO_DIR` | `/data/.kiro` | Path to Kiro data inside container |
+| `AGENTTOP_DIR` | `/data/.agenttop` | Persistent config + optimizer cache |
+
+### Performance Overhead
+
+| Metric | Native | Docker | Overhead |
+|--------|--------|--------|----------|
+| Image size | — | ~330 MB | One-time pull |
+| Memory (idle) | ~80 MB | ~250 MB | +170 MB (Python + pip packages in separate layer) |
+| Memory (optimizing) | ~150 MB | ~320 MB | Same +170 MB baseline |
+| CPU (idle) | <1% | <1% | Negligible |
+| CPU (MAP phase) | 100% 1 core | 100% 1 core | Negligible |
+| JSONL parsing | ~5s | ~5-6s | +10-20% (volume mount I/O vs native fs) |
+| LLM calls | — | — | Zero (network, not disk) |
+| Startup | ~2s | ~3s | +1s container init |
+
+**Bottom line:** ~170 MB extra memory, ~10-20% slower on JSONL file parsing (Docker volume mount overhead), everything else identical. LLM calls go over the network regardless so Docker adds zero overhead there. The optimizer cache (`session_cache.json`) persists in a Docker volume across restarts.
+
+**Ollama inside Docker:** Not included by default (adds 2GB+ to image). Use a cloud provider, or run Ollama on the host and point to it:
+
+```bash
+docker run -d --name agenttop \
+  -p 8420:8420 \
+  -v ~/.claude:/data/.claude:ro \
+  -e AGENTTOP_LLM_BASE_URL=http://host.docker.internal:11434 \
+  agenttop
+```
+
+---
+
 ## Commands
 
 ```

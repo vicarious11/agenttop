@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.egg-info
+.ruff_cache
+.pytest_cache
+demo.html
+assets/screenshots/*.pdf
+assets/screenshots/*.py
+assets/screenshots/*.yaml
+assets/screenshots/*.html
