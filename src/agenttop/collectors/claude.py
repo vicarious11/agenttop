@@ -164,8 +164,8 @@ class ClaudeCodeCollector(BaseCollector):
     Secondary source: ~/.claude/stats-cache.json + history.jsonl (legacy)
     """
 
-    # Cache TTL: re-parse projects/ at most every 60 seconds
-    _CACHE_TTL = 60.0
+    # Cache TTL: re-parse projects/ at most every 5 minutes
+    _CACHE_TTL = 300.0
 
     def __init__(self, claude_dir: Path | None = None) -> None:
         self._dir = claude_dir or CLAUDE_DIR

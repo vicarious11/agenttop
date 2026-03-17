@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -132,27 +134,37 @@ class OptimizeRequest(BaseModel):
     days: int = 0
 
 
-def _run_optimize(days: int = 0) -> dict[str, Any]:
-    """Run optimizer analysis (blocking). Used by both startup and endpoint."""
+def _run_optimize(
+    days: int = 0,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> dict[str, Any]:
+    """Run optimizer analysis (blocking).
+
+    Collects sessions FIRST to prime the collector cache, then calls
+    stats/model_usage which hit cached data (no redundant JSONL parsing).
+    """
     _init()
     from agenttop.web.optimizer import AIUsageOptimizer
 
-    stats = _get_all_stats(days)
-    sessions = []
+    # 1. Collect sessions first (primes Claude's internal cache)
+    sessions: list = []
     feature_configs: dict[str, Any] = {}
     for _, collector in _collectors:
         if collector.is_available():
             sessions.extend(collector.collect_sessions())
             fc = collector.get_feature_config()
             if fc:
-                tool_id = collector.tool_name.value
-                feature_configs[tool_id] = fc
-    model_usage = {}
-    if _claude and _claude.is_available():
-        model_usage = _claude.get_model_usage()
+                feature_configs[collector.tool_name.value] = fc
+
+    # 2. Now stats and model_usage hit cached data (no re-parse)
+    stats = _get_all_stats(days)
+    model_usage = _claude.get_model_usage() if _claude and _claude.is_available() else {}
 
     optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
-    return optimizer.analyze(stats, sessions, model_usage, feature_configs)
+    return optimizer.analyze(
+        stats, sessions, model_usage, feature_configs,
+        on_progress=on_progress,
+    )
 
 
 @app.on_event("startup")
@@ -182,9 +194,11 @@ async def _startup_tasks() -> None:
         global _cached_optimize, _cached_optimize_time, _optimize_running
         _optimize_running = True
         try:
+            import time
             result = await asyncio.get_event_loop().run_in_executor(
                 None, _run_optimize,
             )
+            _cached_optimize_time = time.time()
             _cached_optimize = result
         except Exception as e:
             logging.error("Optimizer precompute failed: %s", e, exc_info=True)
@@ -213,9 +227,9 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
     ):
         return JSONResponse(_cached_optimize)
 
-    # If startup precompute is still running, wait for it (up to 90s)
+    # If startup precompute is still running, wait for it (up to 180s)
     if req.days == 0 and _optimize_running:
-        for _ in range(180):
+        for _ in range(360):
             await asyncio.sleep(0.5)
             if not _optimize_running:
                 break
@@ -232,7 +246,7 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
             asyncio.get_event_loop().run_in_executor(
                 None, _run_optimize, req.days,
             ),
-            timeout=90.0,
+            timeout=180.0,
         )
     except asyncio.TimeoutError:
         return JSONResponse({
@@ -245,9 +259,99 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
             "source": "error",
         })
     if req.days == 0 and "error" not in result:
-        _cached_optimize = result
         _cached_optimize_time = time.time()
+        _cached_optimize = result
     return JSONResponse(result)
+
+
+@app.get("/api/optimize-stream")
+async def api_optimize_stream(days: int = 0) -> StreamingResponse:
+    """SSE endpoint — streams progress during MAP phase, then final JSON result."""
+    import queue
+    import threading
+    import time
+
+    # Return cached result immediately if fresh (skip full pipeline)
+    if days == 0 and _cached_optimize and "error" not in _cached_optimize:
+        cache_age = time.time() - _cached_optimize_time
+        if cache_age < _CACHE_TTL_SECONDS:
+
+            async def _cached_stream():  # noqa: ANN202
+                yield f"event: result\ndata: {json.dumps(_cached_optimize, default=str)}\n\n"
+
+            return StreamingResponse(
+                _cached_stream(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+    progress_q: queue.Queue[str | None] = queue.Queue()
+
+    def _on_progress(phase: str, current: int, total: int) -> None:
+        """Called from the optimizer thread with progress updates."""
+        msg = json.dumps({"phase": phase, "current": current, "total": total})
+        progress_q.put(f"event: progress\ndata: {msg}\n\n")
+
+    async def _event_stream():  # noqa: ANN202
+        """Yield SSE events: progress updates, then final result."""
+        result_holder: list[dict[str, Any]] = []
+        error_holder: list[str] = []
+
+        def _thread_target() -> None:
+            try:
+                result_holder.append(_run_optimize(days, on_progress=_on_progress))
+            except Exception as e:
+                error_holder.append(str(e))
+            finally:
+                progress_q.put(None)  # sentinel
+
+        thread = threading.Thread(target=_thread_target, daemon=True)
+        thread.start()
+
+        # Stream progress events until optimizer finishes
+        while True:
+            try:
+                msg = await asyncio.get_event_loop().run_in_executor(
+                    None, progress_q.get, True, 1.0,
+                )
+            except Exception:
+                # queue.get timeout — keep waiting
+                if not thread.is_alive():
+                    break
+                continue
+            if msg is None:
+                break
+            yield msg
+
+        # Send final result
+        if error_holder:
+            data = json.dumps({"error": error_holder[0], "source": "error"})
+        elif result_holder:
+            data = json.dumps(result_holder[0], default=str)
+            # Cache the result (runs on event loop thread — safe)
+            global _cached_optimize, _cached_optimize_time
+            if days == 0 and "error" not in result_holder[0]:
+                # Assign time first so readers never see new result with old timestamp
+                _cached_optimize_time = time.time()
+                _cached_optimize = result_holder[0]
+        else:
+            data = json.dumps({"error": "No result", "source": "error"})
+
+        yield f"event: result\ndata: {data}\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # --- KB refresh manual trigger ---

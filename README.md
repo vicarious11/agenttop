@@ -81,29 +81,24 @@ No telemetry. No cloud uploads. Your data never leaves your machine.
 │            │                                                                │
 │            ▼                                                                │
 │   ┌──────────────────────────────────────────────────────────┐             │
-│   │                    OPTIMIZER ENGINE                       │             │
+│   │              OPTIMIZER (Map-Reduce-Generate)                 │             │
 │   │                                                           │             │
-│   │  ┌─────────────────────┐   ┌──────────────────────────┐  │             │
-│   │  │  PYTHON (determini- │   │  LLM (intelligent        │  │             │
-│   │  │  stic, always runs) │   │  analysis, optional)     │  │             │
-│   │  │                     │   │                           │  │             │
-│   │  │  build_user_profile │──▶│  OPTIMIZER_PROMPT         │  │             │
-│   │  │  _analyze_prompts   │   │  ┌────────────────────┐  │  │             │
-│   │  │  _analyze_anti_     │   │  │ Ollama (default)   │  │  │             │
-│   │  │    patterns         │   │  │ gemma3:4b          │  │  │             │
-│   │  │  _build_cost_       │   │  │ ──── OR ────       │  │  │             │
-│   │  │    forensics        │   │  │ Anthropic/OpenAI/  │  │  │             │
-│   │  │  _build_llm_input   │   │  │ OpenRouter         │  │  │             │
-│   │  │                     │   │  └────────────────────┘  │  │             │
-│   │  └─────────────────────┘   └──────────┬───────────────┘  │             │
-│   │                                       │                   │             │
-│   │         _merge_results() ◀────────────┘                   │             │
-│   │              │                                            │             │
-│   │              ▼                                            │             │
-│   │  { score, grades, anti_patterns, cost_forensics,          │             │
-│   │    prompt_analysis, recommendations, missing_features,    │             │
-│   │    developer_profile, project_insights, workflow,         │             │
-│   │    feature_detection, context_engineering }               │             │
+│   │  ┌── MAP ─────────────┐   ┌── REDUCE ────────────────┐   │             │
+│   │  │ Per-session LLM    │   │ Deterministic score       │   │             │
+│   │  │ (top 30, cached)   │──▶│ 5 dims × 20 = 0-100     │   │             │
+│   │  │ + Python metrics   │   │ + anti_patterns, costs    │   │             │
+│   │  └────────────────────┘   └──────────┬───────────────┘   │             │
+│   │                                      │                    │             │
+│   │  ┌── GENERATE ────────┐              │                    │             │
+│   │  │ Single LLM call    │◀─────────────┘                    │             │
+│   │  │ ~2K token input    │  ┌────────────────────┐           │             │
+│   │  │ Prose: recs,       │──│ Ollama/Anthropic/  │           │             │
+│   │  │ profile, insights  │  │ OpenAI/OpenRouter  │           │             │
+│   │  └────────────────────┘  └────────────────────┘           │             │
+│   │                                                           │             │
+│   │  _merge_results() → { score, grades, anti_patterns,       │             │
+│   │    cost_forensics, recommendations, developer_profile,    │             │
+│   │    project_insights, workflow, feature_detection }         │             │
 │   └──────────────────────────────────────────────────────────┘             │
 │                                                                             │
 │   ┌──────────────────────────────────────────────────────────┐             │
@@ -315,9 +310,9 @@ AWS Kiro stores workspace state in a VS Code-compatible SQLite database.
 
 ---
 
-## Optimizer Pipeline
+## Optimizer Pipeline — Map-Reduce-Generate
 
-The optimizer is not a wrapper around an LLM prompt. It's a hybrid system where Python computes deterministic metrics (always accurate, no hallucination) and the LLM adds intelligent interpretation.
+The optimizer uses a three-phase architecture that eliminates truncation, produces deterministic scores, and scales to any number of sessions.
 
 ```
                     collect_sessions()    get_stats()    get_feature_config()
@@ -327,67 +322,91 @@ The optimizer is not a wrapper around an LLM prompt. It's a hybrid system where 
                   │           build_user_profile()                  │
                   │                                                 │
                   │  Aggregates ALL data into a structured profile: │
-                  │  • active_tools: [{tool, sessions, tokens}]     │
-                  │  • total_sessions, total_tokens, total_cost     │
-                  │  • projects: [{name, sessions, tokens, tools}]  │
-                  │  • model_usage: {model → {input, output, cache}}│
-                  │  • session_intents: {debugging: N, ...}         │
-                  │  • feature_detection: {tool → config_dict}      │
+                  │  • active_tools, total_tokens, total_cost       │
+                  │  • projects, model_usage, intent_distribution   │
+                  │  • feature_detection (ground truth)             │
                   └───────────────────┬─────────────────────────────┘
                                       │
-                  ┌───────────────────┼───────────────────┐
-                  ▼                   ▼                   ▼
-        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-        │ _analyze_prompts│ │ _analyze_anti_  │ │ _build_cost_    │
-        │                 │ │   patterns      │ │   forensics     │
-        │ • length dist   │ │                 │ │                 │
-        │ • correction    │ │ • marathon sess │ │ • waste by      │
-        │   spirals       │ │   (100+ msgs)   │ │   project       │
-        │ • repeated      │ │ • no context    │ │ • waste by      │
-        │   prompts       │ │   management    │ │   model         │
-        │ • slash cmds    │ │ • correction    │ │ • total waste % │
-        │ • specificity   │ │   spirals       │ │ • savings est.  │
-        │   score         │ │ • repeated      │ │                 │
-        │ • /compact use  │ │   prompts       │ │                 │
-        └────────┬────────┘ └────────┬────────┘ └────────┬────────┘
-                 │                   │                    │
-                 └───────────────────┼────────────────────┘
-                                     ▼
-                          ┌────────────────────┐
-                          │  _build_llm_input() │
-                          │                    │
-                          │  Structured JSON:   │
-                          │  {profile_summary,  │
-                          │   computed_metrics,  │
-                          │   feature_detection, │
-                          │   knowledge_base}    │
-                          └─────────┬──────────┘
-                                    │
-                                    ▼
-                          ┌────────────────────┐
-                          │  LLM (via litellm) │
-                          │                    │
-                          │  Returns JSON:     │
-                          │  • score (0-100)   │
-                          │  • developer_profile│
-                          │  • grades (A-D)    │
-                          │  • recommendations │
-                          │  • missing_features│
-                          │  • project_insights│
-                          │  • workflow        │
-                          └─────────┬──────────┘
-                                    │
-                                    ▼
-                          ┌────────────────────┐
-                          │  _merge_results()  │
-                          │                    │
-                          │  Python metrics +  │
-                          │  LLM intelligence  │
-                          │  → final response  │
-                          └────────────────────┘
+         ┌────────────────────────────┼────────────────────────────┐
+         ▼                            ▼                            ▼
+  ┌──────────────────┐    ┌────────────────────┐    ┌────────────────────┐
+  │  PHASE 1: MAP    │    │  Python Metrics    │    │  Cost Forensics    │
+  │  (per-session    │    │  (deterministic)   │    │  (deterministic)   │
+  │   LLM calls)     │    │                    │    │                    │
+  │                  │    │  _analyze_prompts  │    │  _build_cost_      │
+  │  Top 30 sessions │    │  _analyze_anti_    │    │    forensics       │
+  │  by cost, max 10 │    │    patterns        │    │                    │
+  │  new per run,    │    │                    │    │  waste by project  │
+  │  concurrent,     │    │  length dist,      │    │  waste by model    │
+  │  FULL prompts,   │    │                    │    │                    │
+  │  cached by ID    │    │                    │    │                    │
+  │                  │    │  slash cmds,       │    │  waste rate %      │
+  │  Per session:    │    │  specificity       │    │                    │
+  │  • intent        │    └────────┬───────────┘    └────────┬───────────┘
+  │  • had_spiral    │             │                         │
+  │  • prompt_quality│             │                         │
+  │  • wasted_effort │             │                         │
+  │  • actionable_fix│             │                         │
+  └────────┬─────────┘             │                         │
+           │                       │                         │
+           └───────────────────────┼─────────────────────────┘
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │   PHASE 2: REDUCE            │
+                    │   (pure Python, deterministic)│
+                    │                              │
+                    │   _compute_deterministic_    │
+                    │     score()                   │
+                    │                              │
+                    │   5 dimensions × 20 pts:     │
+                    │   1. Session hygiene (spirals)│
+                    │   2. Prompt quality (waste)   │
+                    │   3. Cost efficiency          │
+                    │   4. Cache efficiency         │
+                    │   5. Tool utilization         │
+                    │                              │
+                    │   Score: 0-100 (traceable)   │
+                    └──────────────┬───────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │   PHASE 3: GENERATE          │
+                    │   (single LLM call)          │
+                    │                              │
+                    │   Input: ~2K tokens of       │
+                    │   pre-computed metrics        │
+                    │                              │
+                    │   LLM writes prose about     │
+                    │   facts — does NOT compute   │
+                    │   any numbers                │
+                    │                              │
+                    │   Output:                    │
+                    │   • developer_profile        │
+                    │   • recommendations          │
+                    │   • project_insights         │
+                    │   • missing_features         │
+                    │   • workflow assessment       │
+                    └──────────────┬───────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │   _merge_results()           │
+                    │                              │
+                    │   Deterministic score/grades  │
+                    │   + Python metrics            │
+                    │   + LLM prose                 │
+                    │   → final JSON response       │
+                    └──────────────────────────────┘
 ```
 
-**Key design principle:** If the LLM is unavailable or returns garbage, all Python-computed metrics (anti-patterns, cost forensics, prompt analysis) still render in the dashboard. The LLM only adds grades, recommendations, and the developer profile.
+**Key design principles:**
+- **Zero truncation** — MAP phase sends FULL prompts per session (not 8 truncated ones)
+- **Deterministic scores** — score is computed from LLM-classified session ratios, not hallucinated by the LLM
+- **Batch-write caching** — session cache written once after all MAP analyses complete (not per-session), stored at `~/.agenttop/session_cache.json`
+- **Progressive enrichment** — max 10 new sessions analyzed per run (sorted by cost). Cached sessions from previous runs still contribute. Score stabilizes after ~3 runs
+- **Concurrent MAP** — cloud providers (Anthropic, OpenAI, OpenRouter) use 4 parallel workers; Ollama uses 1 (configurable via `map_concurrency` in config)
+- **Graceful degradation** — if LLM is unavailable, Python metrics + fallback scoring still render
+- **Score confidence** — output includes `confidence: "full"/"partial"` and `sessions_analyzed` count so the user knows sample size
 
 ### Knowledge Base Architecture
 
@@ -457,10 +476,11 @@ Built by `GraphBuilder` in `graph_builder.py`. Data sources:
 | `/api/hours` | GET | Hourly token distribution merged from all tools | `days` (0=all) |
 | `/api/graph` | GET | D3-compatible knowledge graph (nodes + edges) | `days` (0=all) |
 | `/api/optimize` | POST | Full optimizer analysis (Python metrics + LLM) | Body: `{"days": 0}` |
+| `/api/optimize-stream` | GET | SSE streaming: progress events during MAP, then final result. Returns cached result instantly if fresh | `days` (0=all) |
 | `/api/kb-refresh` | POST | Manually trigger knowledge base refresh from official docs | — |
 | `/ws` | WebSocket | Real-time stat updates (send days preference as text) | — |
 
-**Optimizer caching:** The first `/api/optimize` call runs at server startup in the background. Subsequent calls return the cached result for up to 5 minutes, then re-run.
+**Optimizer caching:** The first `/api/optimize` call runs at server startup in the background. Subsequent calls return the cached result for up to 5 minutes. Session analyses are cached permanently at `~/.agenttop/session_cache.json` — only new sessions trigger LLM calls. The SSE endpoint (`/api/optimize-stream`) also checks the cache first, so reopening the optimizer drawer is instant within the TTL window.
 
 **Knowledge base refresh:** The `KNOWLEDGE_BASE` (per-tool features, setup guides, anti-patterns, prompt tips) is hardcoded and always works offline. On startup and every 24 hours, a background task fetches updates from official GitHub repos (README changes, new features) and merges them into the in-memory KB. Cache stored at `~/.agenttop/knowledge_base.json`. Manual trigger: `POST /api/kb-refresh`.
 
@@ -540,11 +560,29 @@ agenttop/
 
 ## The Optimizer — What It Actually Does
 
+### Scoring Methodology (Deterministic, 0-100)
+
+The score is computed from real data ratios — never hallucinated by the LLM. Five dimensions, each 0-20 points:
+
+| Dimension | Source | How It's Calculated |
+|-----------|--------|---------------------|
+| **Session Hygiene** (0-20) | MAP phase LLM classifications | `sessions_without_spirals / total_analyzed × 20` |
+| **Prompt Quality** (0-20) | MAP phase LLM classifications | `sessions_without_wasted_effort / total_analyzed × 20` |
+| **Cost Efficiency** (0-20) | Python cost forensics | `(1 - waste_pct / 100) × 20` |
+| **Cache Efficiency** (0-20) | Claude model_usage data | `cache_hit_rate / 100 × 20` |
+| **Tool Utilization** (0-20) | Feature detection ground truth | `features_configured / features_available × 20` |
+
+Every score traces to specific data. Example: "Session hygiene: 14/20 — 23/30 analyzed sessions had no correction spirals."
+
+Letter grades: A = 85-100%, B = 65-84%, C = 45-64%, D = 0-44% of dimension max.
+
+**Fallback:** When no LLM session analyses are available, dimensions 1-2 fall back to heuristic counting (session message length, prompt specificity score).
+
 ### Anti-Pattern Detection (Python, deterministic)
 
 The optimizer scans your sessions for these patterns:
 
-**Correction Spirals** — You prompt, the AI gets it wrong, you say "no, actually...", it gets it wrong again. agenttop counts correction keywords (`no`, `wrong`, `actually`, `instead`, `not what I`) per session and flags sessions with 3+ corrections. Each correction wastes ~500 tokens of context.
+**Correction Spirals** — Detected by the MAP phase: each session's full prompt sequence is sent to the LLM, which identifies sessions where the user was repeatedly correcting, redirecting, or fighting the AI. More accurate than keyword matching because the LLM reads the actual conversation flow.
 
 **Marathon Sessions** — Sessions with 100+ messages. After ~50 messages, context degrades — the AI starts forgetting earlier instructions, repeating itself, or contradicting its own code. agenttop counts these and estimates wasted tokens.
 
@@ -565,17 +603,38 @@ The optimizer scans your sessions for these patterns:
 - **Specificity score** — percentage of prompts that include file paths, function names, or technical detail
 - **Slash command usage** — frequency of `/compact`, `/clear`, `/model`, etc.
 
-### LLM Analysis (requires Ollama or cloud provider)
+### LLM Analysis — GENERATE Phase (requires Ollama or cloud provider)
 
-The LLM receives the structured profile + all computed metrics as JSON and returns:
+A single LLM call receives pre-computed metrics (~2K tokens, not the full profile dump) and returns prose:
 
-- **Score (0-100)** — overall optimization grade
 - **Developer profile** — title, bio, traits, AI personality type
-- **Letter grades (A-D)** — cache efficiency, session hygiene, model selection, prompt quality, tool utilization
 - **Recommendations** — 3-7 specific, actionable, prioritized by impact, with estimated savings
 - **Missing features** — cross-referenced against `feature_detection` ground truth
 - **Project insights** — per-project analysis with type classification and model recommendations
 - **Workflow assessment** — current vs optimized workflow vision
+
+The LLM does NOT compute scores or grades — those are pre-computed and passed as facts.
+
+### Session Cache & Performance
+
+Per-session LLM analyses are cached at `~/.agenttop/session_cache.json` (compact JSON, batch-written once per run). Sessions are immutable — once analyzed, they're cached forever and never re-analyzed.
+
+**Timing by scenario:**
+
+| Scenario | Time | Why |
+|----------|------|-----|
+| Ollama, warm cache (all sessions cached) | ~20s | Profile + GENERATE only |
+| Ollama, cold cache (10 new sessions) | ~55-65s | 10 × 5s MAP + GENERATE |
+| Cloud provider (concurrency=4), cold | ~25-35s | 10/4 batches × 5s + GENERATE |
+| Second click (any provider, within 5 min) | Instant | SSE cache hit |
+
+**Performance optimizations:**
+- **Collector cache priming** — sessions collected first, priming the 300s internal cache so `get_stats()` and `get_model_usage()` don't re-parse JSONL files
+- **MAP session cap** — max 10 new sessions per run (top by cost). Remaining uncached sessions analyzed on subsequent runs (progressive enrichment)
+- **Concurrent MAP** — `ThreadPoolExecutor` with 1 worker for Ollama, 4 for cloud (configurable via `map_concurrency` in config.toml)
+- **Batch cache writes** — session cache written once after all MAP analyses complete, not per-session (eliminates 10-30 disk writes)
+- **LLM timeouts** — MAP calls: 30s, GENERATE call: 60s
+- **SSE cache check** — `/api/optimize-stream` returns cached result immediately if fresh, skipping the full pipeline
 
 ![agenttop recommendations — anti-patterns and cost analysis](assets/screenshots/recommendations.png)
 
@@ -593,6 +652,7 @@ provider = "ollama"              # ollama | anthropic | openai | openrouter
 model = "ollama/gemma3:4b"       # any litellm-compatible model
 base_url = "http://localhost:11434"
 max_budget_per_day = 1.0         # USD spending cap
+map_concurrency = 0              # 0 = auto (1 for Ollama, 4 for cloud)
 
 [proxy]
 enabled = false
@@ -669,7 +729,7 @@ git clone https://github.com/vicarious11/agenttop
 cd agenttop
 python3 install.py --no-ollama    # skip Ollama for dev
 source .venv/bin/activate
-pytest                    # 192 tests
+pytest                    # 211 tests
 ruff check src/           # lint
 ```
 
@@ -678,6 +738,20 @@ ruff check src/           # lint
 - `tests/test_claude_features.py` — 43 tests for feature detection functions
 - `tests/test_collector_features.py` — 30 tests for all collectors' `get_feature_config()`
 - `tests/test_optimizer.py` — optimizer anti-patterns, cost forensics, prompt analysis
+
+---
+
+## Feedback & Troubleshooting
+
+**Score seems wrong?** The score is deterministic — computed from LLM-classified session ratios. Check `~/.agenttop/session_cache.json` to see how individual sessions were classified. Delete the file to force re-analysis. Note: on the first few runs, the score has `confidence: "partial"` because only 10 new sessions are analyzed per run. After ~3 runs, all 30 top sessions are cached and the score stabilizes to `confidence: "full"`.
+
+**First run is slow?** The MAP phase analyzes up to 10 uncached sessions per run (~5s each on gemma3:4b). Cold cache on Ollama takes ~60s; cloud providers with 4x concurrency take ~25-35s. Subsequent runs only process new sessions. The second click within 5 minutes is instant (cached).
+
+**LLM timeouts?** MAP calls timeout at 30s each, GENERATE at 60s. The server allows 180s total. If you're hitting timeouts with local Ollama, try a smaller model or switch to a cloud provider in `~/.agenttop/config.toml`.
+
+**Feature detection inaccurate?** Each collector's `get_feature_config()` returns ground-truth data. If the optimizer recommends a feature you already have, check the feature detection output in the API response's `feature_detection` field.
+
+**Report issues:** [github.com/vicarious11/agenttop/issues](https://github.com/vicarious11/agenttop/issues)
 
 ---
 

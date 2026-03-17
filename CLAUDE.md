@@ -57,21 +57,41 @@ pytest
 - **Knowledge base in code** — `KNOWLEDGE_BASE` dict in optimizer.py contains per-tool best practices sourced from official docs
 - **Real data only** — optimizer never guesses; every recommendation is backed by actual usage metrics from the profile
 
-## Optimizer Architecture (optimizer.py)
-The optimizer is the most complex module. It uses a hybrid approach:
+## Optimizer Architecture (optimizer.py) — Map-Reduce-Generate
+The optimizer uses a three-phase architecture for scalable, accurate analysis:
 
-**Python-computed (deterministic, always accurate):**
-1. `build_user_profile()` — aggregates sessions into a rich profile (tools, sessions, projects, intents, model usage, per-project details)
-2. `_analyze_prompts()` — NLP-lite prompt analysis (correction spirals, repeated prompts, slash commands, specificity)
-3. `_analyze_anti_patterns()` — detects anti-patterns with severity, examples, and fixes
-4. `_build_cost_forensics()` — cost analysis with waste estimation by project and model
+**Phase 1 — MAP (per-session LLM calls, cached, concurrent):**
+- Top 30 sessions by cost, max 10 new (uncached) per run (progressive enrichment)
+- Each call classifies: intent, spirals, prompt quality, outcome, wasted effort
+- Results cached by session ID in `~/.agenttop/session_cache.json` (never re-analyzed)
+- Concurrent: 1 worker for Ollama, 4 for cloud (configurable via `map_concurrency` in config)
+- Batch cache write: single disk write after all MAP analyses complete (not per-session)
+- LLM timeout: 30s per MAP call. Cold run: ~55s Ollama, ~25s cloud
+- Functions: `_analyze_single_session()`, `_analyze_sessions_map()`, `_get_map_concurrency()`
 
-**LLM-powered (intelligent analysis):**
-5. `_build_llm_input()` — converts profile + metrics into structured JSON for the LLM (not prose)
-6. `OPTIMIZER_PROMPT` — instructs LLM to grade, recommend, and identify missing features
-7. `_merge_results()` — combines Python metrics + LLM analysis into final response
+**Phase 2 — REDUCE (pure Python, deterministic):**
+- Aggregates per-session LLM outputs into deterministic score (0-100)
+- 5 dimensions × 20 points: session hygiene, prompt quality, cost efficiency, cache efficiency, tool utilization
+- Session hygiene and prompt quality use LLM classifications (spiral-free ratio, wasted-effort ratio)
+- Cost/cache/tool dimensions use Python-computed metrics (unchanged)
+- Functions: `_compute_deterministic_score()`, `_analyze_prompts()`, `_analyze_anti_patterns()`, `_build_cost_forensics()`
 
-Output schema: `{anti_patterns, cost_forensics, prompt_analysis, context_engineering, session_details, profile_summary, score, developer_profile, grades, recommendations, missing_features, project_insights, workflow, source}`
+**Phase 3 — GENERATE (single LLM call, small input):**
+- Input: pre-computed metrics + session observations (~2K tokens, not full profile dump)
+- Output: developer profile, recommendations, project insights, workflow assessment
+- LLM writes prose about pre-computed facts — does NOT compute any numbers
+- Functions: `_get_llm_analysis()` with `SYNTHESIS_PROMPT`
+
+**Merge:** `_merge_results()` outputs the same JSON shape the frontend expects
+
+Output schema: `{anti_patterns, cost_forensics, prompt_analysis, context_engineering, session_details, profile_summary, score, grades, developer_profile, recommendations, missing_features, project_insights, workflow, feature_detection, source}`
+
+**Performance architecture:**
+- Collector cache TTL: 300s (matches server-level cache). Sessions collected first to prime cache; `get_stats()`/`get_model_usage()` hit cached data
+- SSE endpoint (`/api/optimize-stream`) returns cached result instantly if within 5-min TTL
+- `get_completion()` accepts `timeout` param: 30s for MAP, 60s for GENERATE
+- `LLMConfig.map_concurrency`: 0=auto (1 Ollama, 4 cloud), or explicit override
+- Score includes `confidence: "full"/"partial"` and `sessions_analyzed` count
 
 ## Testing
 ```bash
@@ -82,4 +102,5 @@ pytest tests/ -k test_optimizer  # optimizer tests
 ## Common Tasks
 - Adding a new collector: subclass `BaseCollector` in `collectors/`, register in `server.py`
 - Adding a tool to knowledge base: add entry to `KNOWLEDGE_BASE` dict in `optimizer.py`
-- Adding optimizer output fields: update `OPTIMIZER_PROMPT` JSON schema, `_merge_results()` in optimizer.py, and `optimizer.js` `_renderResults()`
+- Adding optimizer output fields: update `SYNTHESIS_PROMPT` JSON schema, `_merge_results()` in optimizer.py, and `optimizer.js` `_renderResults()`
+- Adding session analysis fields: update `SESSION_ANALYSIS_PROMPT` in optimizer.py and `_analyze_single_session()` field extraction

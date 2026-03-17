@@ -33,6 +33,7 @@ class LLMConfig(BaseModel):
     base_url: str = "http://localhost:11434"
     base_url_env: str = ""
     max_budget_per_day: float = 1.0  # USD
+    map_concurrency: int = 0  # 0 = auto-detect (1 for Ollama, 4 for cloud)
 
 
 class ProxyConfig(BaseModel):
@@ -109,6 +110,7 @@ provider = "ollama"
 model = "ollama/gemma3:4b"
 base_url = "http://localhost:11434"
 max_budget_per_day = 1.0
+# map_concurrency = 0  # 0 = auto (1 for Ollama, 4 for cloud providers)
 
 # ── Anthropic (uncomment for cloud-powered analysis) ──
 # [llm]

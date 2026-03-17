@@ -84,28 +84,51 @@ const Optimizer = {
     Optimizer._loading = true;
     Optimizer._updateHandle();
     try {
-      const res = await fetch('/api/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: 0 }),
+      const eventSource = new EventSource('/api/optimize-stream?days=0');
+
+      await new Promise((resolve) => {
+        eventSource.addEventListener('progress', (e) => {
+          try {
+            const p = JSON.parse(e.data);
+            const title = document.querySelector('.drawer-title');
+            if (title && p.phase === 'map' && p.total > 0) {
+              title.textContent = `AI Usage Optimizer (session ${p.current}/${p.total})`;
+            }
+            // Update loading view if drawer is open
+            if (Optimizer._expanded) {
+              Optimizer._renderProgress(p.phase, p.current, p.total);
+            }
+          } catch(err) { /* ignore */ }
+        });
+
+        eventSource.addEventListener('result', (e) => {
+          eventSource.close();
+          try {
+            const data = JSON.parse(e.data);
+            if (!data.error || data.source === 'partial') {
+              Optimizer._cached = data;
+              try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(err) { /* ignore */ }
+            }
+          } catch(err) { /* ignore */ }
+          Optimizer._loading = false;
+          Optimizer._updateHandle();
+          if (Optimizer._expanded) Optimizer._renderContent();
+          resolve();
+        });
+
+        eventSource.onerror = () => {
+          eventSource.close();
+          Optimizer._loading = false;
+          Optimizer._updateHandle();
+          if (Optimizer._expanded) Optimizer._renderContent();
+          resolve();
+        };
       });
-      if (!res.ok) {
-        Optimizer._loading = false;
-        Optimizer._updateHandle();
-        return;
-      }
-      const data = await res.json();
-      if (!data.error || data.source === 'partial') {
-        Optimizer._cached = data;
-        try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) { console.warn('Failed to cache optimizer results:', e); }
-      }
     } catch(e) {
       // silent — user can still click Analyze
+      Optimizer._loading = false;
+      Optimizer._updateHandle();
     }
-    Optimizer._loading = false;
-    Optimizer._updateHandle();
-    // If drawer is open, refresh content
-    if (Optimizer._expanded) Optimizer._renderContent();
   },
 
   _updateHandle() {
@@ -145,6 +168,31 @@ const Optimizer = {
     `;
   },
 
+  _phaseLabels: {
+    profile: 'Building usage profile...',
+    map: 'Analyzing session {current}/{total}...',
+    reduce: 'Computing scores...',
+    generate: 'Generating recommendations...',
+  },
+
+  _renderProgress(phase, current, total) {
+    const content = document.getElementById('optimizer-content');
+    const label = (Optimizer._phaseLabels[phase] || phase)
+      .replace('{current}', current)
+      .replace('{total}', total);
+    content.innerHTML = `
+      <div class="loading-pulse" style="text-align:center;">
+        <div>${label}</div>
+        ${phase === 'map' && total > 0 ? `
+          <div style="margin-top:12px;width:80%;max-width:400px;height:6px;background:var(--bg-card);border-radius:3px;margin-left:auto;margin-right:auto;overflow:hidden;">
+            <div style="width:${Math.round(current / total * 100)}%;height:100%;background:var(--neon-cyan);border-radius:3px;transition:width 0.3s;"></div>
+          </div>
+          <div style="margin-top:6px;font-size:11px;color:var(--text-secondary);">${current} of ${total} sessions</div>
+        ` : ''}
+      </div>
+    `;
+  },
+
   async analyze() {
     const content = document.getElementById('optimizer-content');
     const btn = document.getElementById('analyze-btn');
@@ -152,55 +200,79 @@ const Optimizer = {
 
     Optimizer._loading = true;
     Optimizer._updateHandle();
-    content.innerHTML = `<div class="loading-pulse">Building usage profile & analyzing patterns...</div>`;
+    Optimizer._renderProgress('profile', 0, 0);
+
+    const days = typeof App !== 'undefined' ? App.days : 0;
 
     try {
-      const res = await fetch('/api/optimize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: typeof App !== 'undefined' ? App.days : 0 }),
+      // Use SSE streaming endpoint for real-time progress
+      const eventSource = new EventSource(`/api/optimize-stream?days=${days}`);
+
+      await new Promise((resolve, reject) => {
+        eventSource.addEventListener('progress', (e) => {
+          try {
+            const p = JSON.parse(e.data);
+            Optimizer._renderProgress(p.phase, p.current, p.total);
+            // Update drawer title with progress
+            const title = document.querySelector('.drawer-title');
+            if (title && p.phase === 'map' && p.total > 0) {
+              title.textContent = `AI Usage Optimizer (session ${p.current}/${p.total})`;
+            }
+          } catch(err) { /* ignore parse errors */ }
+        });
+
+        eventSource.addEventListener('result', (e) => {
+          eventSource.close();
+          try {
+            const data = JSON.parse(e.data);
+            Optimizer._loading = false;
+            Optimizer._updateHandle();
+
+            if (data.source === 'error' && !data.anti_patterns) {
+              content.innerHTML = `
+                <div style="text-align:center;padding:40px 24px;">
+                  <div style="font-size:48px;margin-bottom:16px;">\uD83D\uDD0C</div>
+                  <h3 style="color:var(--neon-yellow);margin-bottom:12px;">${data.error || 'LLM not available'}</h3>
+                  ${data.setup_hint ? `<pre style="text-align:left;background:var(--bg-card);padding:16px;border-radius:8px;margin:16px auto;max-width:500px;color:var(--text-secondary);white-space:pre-wrap;">${data.setup_hint}</pre>` : ''}
+                  <button class="neon-btn" onclick="Optimizer.analyze()" style="margin-top:16px;">Retry</button>
+                </div>
+              `;
+              resolve();
+              return;
+            }
+
+            Optimizer._cached = data;
+            try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(err) { console.warn('Failed to cache:', err); }
+            Optimizer._renderResults(data);
+            resolve();
+          } catch(parseErr) {
+            Optimizer._loading = false;
+            Optimizer._updateHandle();
+            content.innerHTML = `
+              <div style="text-align:center;padding:24px;color:var(--neon-red);">
+                Failed to parse optimizer result.
+                <br><br>
+                <button class="neon-btn" onclick="Optimizer.analyze()">Retry</button>
+              </div>
+            `;
+            resolve();
+          }
+        });
+
+        eventSource.onerror = () => {
+          eventSource.close();
+          Optimizer._loading = false;
+          Optimizer._updateHandle();
+          content.innerHTML = `
+            <div style="text-align:center;padding:24px;color:var(--neon-red);">
+              Connection lost. Check your LLM provider is running.
+              <br><br>
+              <button class="neon-btn" onclick="Optimizer.analyze()">Retry</button>
+            </div>
+          `;
+          resolve();
+        };
       });
-
-      // Handle non-JSON responses (e.g. server 500)
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        Optimizer._loading = false;
-        Optimizer._updateHandle();
-        content.innerHTML = `
-          <div style="text-align:center;padding:24px;color:var(--neon-red);">
-            Server returned an error. Check your LLM provider is running and configured.
-            <br><br>
-            <pre style="text-align:left;background:var(--bg-card);padding:12px;border-radius:6px;font-size:11px;color:var(--text-secondary);max-width:500px;margin:0 auto;white-space:pre-wrap;overflow:auto;max-height:200px;">${text.slice(0, 500)}</pre>
-            <br>
-            <button class="neon-btn" onclick="Optimizer.analyze()">Retry</button>
-          </div>
-        `;
-        return;
-      }
-
-      Optimizer._loading = false;
-      Optimizer._updateHandle();
-
-      if (data.source === 'error' && !data.anti_patterns) {
-        // Full error — no usable data at all
-        content.innerHTML = `
-          <div style="text-align:center;padding:40px 24px;">
-            <div style="font-size:48px;margin-bottom:16px;">\uD83D\uDD0C</div>
-            <h3 style="color:var(--neon-yellow);margin-bottom:12px;">${data.error || 'LLM not available'}</h3>
-            ${data.setup_hint ? `<pre style="text-align:left;background:var(--bg-card);padding:16px;border-radius:8px;margin:16px auto;max-width:500px;color:var(--text-secondary);white-space:pre-wrap;">${data.setup_hint}</pre>` : ''}
-            <button class="neon-btn" onclick="Optimizer.analyze()" style="margin-top:16px;">Retry</button>
-          </div>
-        `;
-        return;
-      }
-
-      // Success or partial (has Python metrics even if LLM failed)
-      Optimizer._cached = data;
-      try { sessionStorage.setItem('agenttop-optimizer', JSON.stringify(data)); } catch(e) { console.warn('Failed to cache optimizer results:', e); }
-      Optimizer._renderResults(data);
     } catch (err) {
       Optimizer._loading = false;
       Optimizer._updateHandle();
@@ -528,6 +600,24 @@ const Optimizer = {
         `;
       }
       html += '</div>';
+    }
+
+    // Strengths — what you're doing right
+    if (data.strengths && data.strengths.length > 0) {
+      html += '<div class="strengths-section"><h3>What You\'re Doing Right</h3>';
+      html += '<div class="strengths-grid">';
+      data.strengths.forEach(s => {
+        html += `
+          <div class="strength-card">
+            <span class="strength-icon">${s.icon || '\u2705'}</span>
+            <div class="strength-body">
+              <h4>${s.title}</h4>
+              <p>${s.detail}</p>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div></div>';
     }
 
     // Recommendations
