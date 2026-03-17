@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -14,16 +13,14 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-import os
-
-CONFIG_DIR = Path(os.environ.get("AGENTTOP_DIR", str(Path.home() / ".agenttop")))
+CONFIG_DIR = Path.home() / ".agenttop"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 DB_PATH = CONFIG_DIR / "agenttop.db"
 
-# Default paths for AI tool data (overridable via env vars for Docker)
-CLAUDE_DIR = Path(os.environ.get("CLAUDE_DIR", str(Path.home() / ".claude")))
-CURSOR_DIR = Path(os.environ.get("CURSOR_DIR", str(Path.home() / ".cursor")))
-KIRO_DIR = Path(os.environ.get("KIRO_DIR", str(Path.home() / "Library" / "Application Support" / "Kiro")))
+# Default paths for AI tool data
+CLAUDE_DIR = Path.home() / ".claude"
+CURSOR_DIR = Path.home() / ".cursor"
+KIRO_DIR = Path.home() / "Library" / "Application Support" / "Kiro"
 
 
 class LLMConfig(BaseModel):
@@ -60,6 +57,8 @@ class Config(BaseModel):
 
 def _apply_env_overrides(config: Config) -> Config:
     """Apply AGENTTOP_LLM_* env var overrides. Returns a new Config (immutable)."""
+    import os
+
     overrides: dict[str, Any] = {}
     provider = os.environ.get("AGENTTOP_LLM_PROVIDER")
     model = os.environ.get("AGENTTOP_LLM_MODEL")
