@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -135,7 +136,7 @@ class OptimizeRequest(BaseModel):
 
 def _run_optimize(
     days: int = 0,
-    on_progress: Any = None,
+    on_progress: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Run optimizer analysis (blocking).
 
@@ -197,8 +198,8 @@ async def _startup_tasks() -> None:
             result = await asyncio.get_event_loop().run_in_executor(
                 None, _run_optimize,
             )
-            _cached_optimize = result
             _cached_optimize_time = time.time()
+            _cached_optimize = result
         except Exception as e:
             logging.error("Optimizer precompute failed: %s", e, exc_info=True)
             _cached_optimize = {
@@ -258,8 +259,8 @@ async def api_optimize(req: OptimizeRequest) -> JSONResponse:
             "source": "error",
         })
     if req.days == 0 and "error" not in result:
-        _cached_optimize = result
         _cached_optimize_time = time.time()
+        _cached_optimize = result
     return JSONResponse(result)
 
 
@@ -331,11 +332,12 @@ async def api_optimize_stream(days: int = 0) -> StreamingResponse:
             data = json.dumps({"error": error_holder[0], "source": "error"})
         elif result_holder:
             data = json.dumps(result_holder[0], default=str)
-            # Cache the result
+            # Cache the result (runs on event loop thread — safe)
             global _cached_optimize, _cached_optimize_time
             if days == 0 and "error" not in result_holder[0]:
-                _cached_optimize = result_holder[0]
+                # Assign time first so readers never see new result with old timestamp
                 _cached_optimize_time = time.time()
+                _cached_optimize = result_holder[0]
         else:
             data = json.dumps({"error": "No result", "source": "error"})
 

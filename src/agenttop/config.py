@@ -110,6 +110,7 @@ provider = "ollama"
 model = "ollama/gemma3:4b"
 base_url = "http://localhost:11434"
 max_budget_per_day = 1.0
+# map_concurrency = 0  # 0 = auto (1 for Ollama, 4 for cloud providers)
 
 # ── Anthropic (uncomment for cloud-powered analysis) ──
 # [llm]

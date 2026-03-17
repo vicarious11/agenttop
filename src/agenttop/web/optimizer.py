@@ -816,7 +816,7 @@ def _compute_deterministic_score(
     if uses_clear > 0:
         features_used += 1
 
-    utilization_ratio = features_used / features_available
+    utilization_ratio = min(features_used, features_available) / features_available
     tool_score = round(utilization_ratio * 20, 1)
     breakdown["tool_utilization"] = tool_score
     grades["tool_utilization"] = _grade_dimension(
@@ -1439,7 +1439,7 @@ class AIUsageOptimizer:
         to_analyze = to_analyze[:_MAX_NEW_PER_MAP_RUN]
         total = len(to_analyze)
 
-        uncached_count = len([s for s in top_sessions if s.id not in cache])
+        uncached_count = sum(1 for s in top_sessions if s.id not in cache)
         if to_analyze:
             logging.info(
                 "MAP phase: %d sessions to analyze (%d cached, %d skipped due to cap)",
@@ -1451,11 +1451,14 @@ class AIUsageOptimizer:
         # Concurrent analysis (provider-aware)
         results: dict[str, dict[str, Any]] = {}
         workers = self._get_map_concurrency()
+        # Snapshot LLM config before threading — Pydantic BaseModel is read-only
+        # but snapshot guarantees no future mutation can cause a race.
+        llm_config_snapshot = self._config.llm.model_copy()
 
         if to_analyze:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
-                    executor.submit(self._analyze_single_session, s): s
+                    executor.submit(self._analyze_single_session, s, llm_config_snapshot): s
                     for s in to_analyze
                 }
                 for idx, future in enumerate(as_completed(futures)):
@@ -1485,10 +1488,18 @@ class AIUsageOptimizer:
     def _analyze_single_session(
         self,
         session: Session,
+        llm_config: Any = None,
     ) -> dict[str, Any] | None:
-        """Analyze a single session with the LLM. Full prompts, zero truncation."""
+        """Analyze a single session with the LLM. Full prompts, zero truncation.
+
+        Args:
+            llm_config: Optional LLMConfig snapshot for thread-safe concurrent use.
+                        Falls back to self._config.llm if not provided.
+        """
         if not session.prompts:
             return None
+
+        config = llm_config or self._config.llm
 
         # Format ALL prompts — no truncation
         prompts_text = "\n".join(
@@ -1515,7 +1526,7 @@ class AIUsageOptimizer:
         for attempt in range(2):
             raw = get_completion(
                 prompt,
-                self._config.llm,
+                config,
                 system=system_msg,
                 max_tokens=500,
                 timeout=30,
