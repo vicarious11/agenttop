@@ -8,14 +8,13 @@ services:
       - ~/.claude:/data/.claude:ro
       - ~/.cursor:/data/.cursor:ro
       - ~/.config/github-copilot:/data/.copilot:ro
-      # Persist optimizer cache + Ollama models across restarts
+      # Persist optimizer cache across restarts
       - agenttop-data:/data/.agenttop
-      - ollama-data:/root/.ollama
     environment:
       - CLAUDE_DIR=/data/.claude
       - CURSOR_DIR=/data/.cursor
       - AGENTTOP_DIR=/data/.agenttop
-      # Uncomment for cloud LLM instead of built-in Ollama:
+      # Uncomment for cloud LLM (faster optimizer):
       # - AGENTTOP_LLM_PROVIDER=anthropic
       # - AGENTTOP_LLM_MODEL=claude-haiku-4-5-20251001
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -23,4 +22,3 @@ services:
 
 volumes:
   agenttop-data:
-  ollama-data:

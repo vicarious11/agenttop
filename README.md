@@ -672,9 +672,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ## Docker (Isolated Sandbox)
 
-Run agenttop in a container — your AI tool data is mounted read-only, nothing is modified on the host. Uses your host machine's Ollama automatically via `host.docker.internal`.
-
-**Requires:** Docker Desktop + Ollama running on host (`ollama serve`).
+Run agenttop in a container — your AI tool data is mounted read-only, nothing is modified on the host.
 
 ```bash
 # One command
@@ -690,9 +688,7 @@ docker run -d --name agenttop \
   agenttop
 ```
 
-The container auto-connects to Ollama on your host machine (`http://host.docker.internal:11434`). No extra config needed — just make sure `ollama serve` is running.
-
-**With cloud LLM instead of Ollama:**
+**With cloud LLM (no Ollama in container):**
 
 ```bash
 docker run -d --name agenttop \
@@ -712,24 +708,31 @@ docker run -d --name agenttop \
 | `CURSOR_DIR` | `/data/.cursor` | Path to Cursor data inside container |
 | `KIRO_DIR` | `/data/.kiro` | Path to Kiro data inside container |
 | `AGENTTOP_DIR` | `/data/.agenttop` | Persistent config + optimizer cache |
-| `AGENTTOP_LLM_BASE_URL` | `http://host.docker.internal:11434` | Ollama endpoint (auto-points to host) |
 
-### Performance Overhead (with host Ollama)
+### Performance Overhead
 
-| Metric | Native | Docker + Host Ollama | Overhead |
-|--------|--------|----------------------|----------|
-| Image size | — | ~330 MB | 10s build, one-time |
-| Memory (idle) | ~80 MB | ~250 MB | +170 MB (Python runtime in container) |
+| Metric | Native | Docker | Overhead |
+|--------|--------|--------|----------|
+| Image size | — | ~330 MB | One-time pull |
+| Memory (idle) | ~80 MB | ~250 MB | +170 MB (Python + pip packages in separate layer) |
 | Memory (optimizing) | ~150 MB | ~320 MB | Same +170 MB baseline |
 | CPU (idle) | <1% | <1% | Negligible |
-| CPU (MAP phase) | 100% 1 core | 100% 1 core | Negligible (Ollama runs on host) |
+| CPU (MAP phase) | 100% 1 core | 100% 1 core | Negligible |
 | JSONL parsing | ~5s | ~5-6s | +10-20% (volume mount I/O vs native fs) |
-| LLM calls (Ollama) | ~5s/call | ~5s/call | Zero (host.docker.internal is loopback) |
-| LLM calls (cloud) | — | — | Zero (network either way) |
+| LLM calls | — | — | Zero (network, not disk) |
 | Startup | ~2s | ~3s | +1s container init |
-| Build time | — | ~10s | Cached after first build |
 
-**Bottom line:** ~170 MB extra memory, ~10-20% slower on JSONL file parsing (Docker bind mount overhead), everything else identical. Ollama runs on the host so LLM inference has zero Docker overhead. The optimizer cache (`session_cache.json`) persists in a Docker volume across restarts.
+**Bottom line:** ~170 MB extra memory, ~10-20% slower on JSONL file parsing (Docker volume mount overhead), everything else identical. LLM calls go over the network regardless so Docker adds zero overhead there. The optimizer cache (`session_cache.json`) persists in a Docker volume across restarts.
+
+**Ollama inside Docker:** Not included by default (adds 2GB+ to image). Use a cloud provider, or run Ollama on the host and point to it:
+
+```bash
+docker run -d --name agenttop \
+  -p 8420:8420 \
+  -v ~/.claude:/data/.claude:ro \
+  -e AGENTTOP_LLM_BASE_URL=http://host.docker.internal:11434 \
+  agenttop
+```
 
 ---
 
