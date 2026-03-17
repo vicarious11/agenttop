@@ -16,11 +16,50 @@ import json
 import logging
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any
 
 from agenttop.analysis.engine import get_completion
 from agenttop.config import Config
 from agenttop.models import Session
+
+# Maximum new (uncached) sessions to analyze per MAP run.
+# The 10 most expensive uncached sessions go first; remaining ones
+# are progressively enriched on subsequent runs.
+_MAX_NEW_PER_MAP_RUN = 10
+
+# ---------------------------------------------------------------------------
+# Session analysis cache: per-session LLM results persisted to disk.
+# Sessions are immutable — once analyzed, cached forever.
+# ---------------------------------------------------------------------------
+
+_SESSION_CACHE_PATH = Path.home() / ".agenttop" / "session_cache.json"
+
+
+def _load_session_cache() -> dict[str, dict[str, Any]]:
+    """Load cached per-session LLM analyses from disk."""
+    if not _SESSION_CACHE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(_SESSION_CACHE_PATH.read_text())
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, OSError) as e:
+        logging.debug("Failed to load session cache: %s", e)
+    return {}
+
+
+def _save_session_cache(cache: dict[str, dict[str, Any]]) -> None:
+    """Persist session cache to disk."""
+    try:
+        _SESSION_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SESSION_CACHE_PATH.write_text(
+            json.dumps(cache, default=str),
+        )
+    except OSError as e:
+        logging.warning("Failed to save session cache: %s", e)
 
 # ---------------------------------------------------------------------------
 # Knowledge base: sourced from official docs (March 2026) for each tool.
@@ -282,40 +321,65 @@ UNIVERSAL_PRACTICES = [
 # Python handles all deterministic computation; LLM adds intelligence.
 # ---------------------------------------------------------------------------
 
-OPTIMIZER_PROMPT = """\
-You are an expert AI coding tool optimizer. Analyze the structured usage data \
-below and provide intelligent analysis.
+SESSION_ANALYSIS_PROMPT = """\
+Analyze this AI coding session. You see ALL the user's prompts in order.
 
-IMPORTANT: The "computed_metrics" section contains pre-computed deterministic \
-data (anti-patterns, cost forensics, prompt analysis, context engineering). \
-Do NOT recompute these — they are already accurate. Focus on interpretation \
-and recommendations.
+Session metadata:
+- Tool: {tool}
+- Project: {project}
+- Messages: {message_count}
+- Tokens: {total_tokens}
 
-## Input Data (JSON)
+User prompts (in order):
+{prompts}
 
-```json
-{input_json}
-```
-
-## Your Task
-
-Using the data above, return ONLY valid JSON with this exact structure:
-
-```json
+Answer these questions about this session as JSON:
 {{
-  "score": <0-100 overall optimization score>,
+  "intent": "<debugging|greenfield|refactoring|exploration|devops|documentation|code_review|other>",
+  "had_spiral": <true|false>,
+  "spiral_detail": "<if spiral: 1 sentence what went wrong. if no spiral: empty string>",
+  "prompt_quality": "<1 sentence: was the first prompt clear enough? what was missing?>",
+  "outcome": "<resolved|abandoned|pivoted>",
+  "wasted_effort": "<1 sentence: what caused unnecessary back-and-forth, or empty string if efficient>",
+  "actionable_fix": "<1 sentence: what would have saved time in this session>"
+}}
+
+Rules:
+- "had_spiral" means user repeatedly corrected, redirected, or fought the AI (3+ times)
+- "wasted_effort" should be empty string if the session was efficient
+- Return ONLY the JSON object, no markdown fences, no explanation
+"""
+
+SYNTHESIS_PROMPT = """\
+You are an AI coding workflow consultant. Based on the analysis below, \
+write actionable recommendations.
+
+## Pre-computed Analysis (do NOT recompute — these are exact)
+
+Score: {score}/100
+Grades: {grades}
+Anti-patterns found: {anti_patterns_summary}
+Cost forensics: {cost_summary}
+Session patterns: {session_patterns}
+Features configured: {features}
+
+## Real Projects (ONLY use these exact names in project_insights)
+{real_projects}
+
+## Per-Session Observations (from detailed analysis)
+{session_observations}
+
+## Tool Knowledge
+{tool_knowledge}
+
+## Generate (JSON):
+Return ONLY valid JSON with this exact structure:
+{{
   "developer_profile": {{
     "title": "<short identity, e.g. 'Full-Stack AI Power User'>",
     "bio": "<2-3 sentence profile based on the data>",
     "traits": ["<trait1>", "<trait2>", "<trait3>"],
     "ai_personality": "<one of: power_user, methodical_builder, debug_warrior, explorer, cautious_adopter, efficiency_optimizer>"
-  }},
-  "grades": {{
-    "cache_efficiency": {{"grade": "<A/B/C/D>", "detail": "<one sentence with numbers>"}},
-    "session_hygiene": {{"grade": "<A/B/C/D>", "detail": "<one sentence with numbers>"}},
-    "model_selection": {{"grade": "<A/B/C/D>", "detail": "<one sentence>"}},
-    "prompt_quality": {{"grade": "<A/B/C/D>", "detail": "<one sentence>"}},
-    "tool_utilization": {{"grade": "<A/B/C/D>", "detail": "<one sentence>"}}
   }},
   "recommendations": [
     {{"title": "<actionable title>", "description": "<specific advice referencing their data>", "priority": "<high/medium/low>", "savings": "<estimated impact>", "source": "<reference>"}}
@@ -331,26 +395,20 @@ Using the data above, return ONLY valid JSON with this exact structure:
     "future": "<2-3 sentence optimized workflow vision>"
   }}
 }}
-```
 
 Rules:
+- Score and grades are PRE-COMPUTED facts — do NOT invent different numbers
 - Reference REAL numbers from the data (tokens, costs, session counts)
 - 3-7 recommendations, ranked by impact
-- Cross-reference "feature_detection" with session patterns for missing_features. If feature_detection shows agents/commands/rules/skills are configured, do NOT flag them as missing. If feature_detection shows they're NOT configured but session patterns suggest they'd help, flag them with evidence.
 - Be specific and actionable, not generic
 - Return ONLY the JSON object, no markdown fences, no explanation
-- **project_insights MUST include EVERY project from project_details** — not just the top one. If there are 5 projects, return 5 project_insight entries. Each must have all fields including recommended_model and recommended_tool.
-- **ONLY recommend models that actually exist for the tool being used:**
-  - Claude Code: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
-  - Cursor: gpt-4o, claude-sonnet-4-6, claude-haiku-4-5, gemini-2.5-pro (or models from model_usage data)
-  - Copilot: gpt-4o, claude-sonnet-4-6, o3-mini
-  - Codex: codex-mini, o4-mini, o3
-  - Kiro: claude-sonnet-4-6
-  - NEVER invent model names like "gpt-3.5-codex" or "gpt-5.3". Use ONLY the names listed above or seen in model_usage data.
-- **recommended_tool**: Recommend the best IDE/tool for each project type (e.g. Cursor for rapid prototyping, Claude Code for CLI-heavy workflows, Kiro for spec-driven features, Copilot for GitHub-integrated repos). Base this on the project's intent distribution and the tool's strengths from tool_knowledge.
-- **setup_guide and prompt_tips**: Each feature in tool_knowledge now includes setup_guide (how to set it up step-by-step) and prompt_tips (good vs bad prompt examples). Reference these in recommendations when suggesting features the user should adopt. Include specific setup steps, not just "use feature X".
-- When identifying missing_features, include the setup_guide from tool_knowledge so the user knows exactly HOW to enable the feature.
-- When grading prompt_quality, reference the prompt_tips from tool_knowledge to explain what specifically is wrong with the user's prompts and how to improve them.
+- project_insights MUST use ONLY the exact project names from "Real Projects" above — NEVER invent or rename projects
+- ONLY recommend models that actually exist for the tool being used:
+  Claude Code: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
+  Cursor: gpt-4o, claude-sonnet-4-6, claude-haiku-4-5, gemini-2.5-pro
+  Copilot: gpt-4o, claude-sonnet-4-6, o3-mini
+  Codex: codex-mini, o4-mini, o3
+  Kiro: claude-sonnet-4-6
 """
 
 
@@ -636,6 +694,320 @@ def _build_cost_forensics(
 
 
 # ---------------------------------------------------------------------------
+# Deterministic score: computed from real metrics, not LLM guesswork
+# ---------------------------------------------------------------------------
+
+
+def _compute_deterministic_score(
+    profile: dict[str, Any],
+    session_analyses: dict[str, dict] | None = None,
+) -> dict[str, Any]:
+    """Compute a 0-100 optimization score from LLM-classified sessions + metrics.
+
+    Five dimensions, each scored 0-20. When session_analyses are available
+    (from the MAP phase), dimensions 1-2 use LLM classifications. Otherwise
+    falls back to heuristic counting.
+
+      1. Session Hygiene (0-20) = sessions without spirals / total analyzed
+      2. Prompt Quality (0-20)  = sessions without wasted effort / total analyzed
+      3. Cost Efficiency (0-20) = (1 - waste_pct / 100) × 20
+      4. Cache Efficiency (0-20) = cache_hit_rate / 100 × 20
+      5. Tool Utilization (0-20) = features_configured / features_available × 20
+
+    Returns: {"score": int, "grades": dict, "breakdown": dict}
+    """
+    grades: dict[str, dict[str, Any]] = {}
+    breakdown: dict[str, float] = {}
+
+    sessions = profile.get("all_sessions", [])
+    sessions_count = len(sessions) or profile.get("session_count", 0) or 1
+    prompt_analysis = profile.get("prompt_analysis", {})
+    cost_forensics = profile.get("cost_forensics", {})
+    model_usage = profile.get("model_usage", {})
+    feature_detection = profile.get("feature_detection", {})
+
+    analyzed = list((session_analyses or {}).values())
+    total_analyzed = max(len(analyzed), 1)
+    # Confidence note: with progressive enrichment (cap=10/run),
+    # first run uses fewer sessions. Score stabilizes after ~3 runs.
+    confidence = "full" if total_analyzed >= 25 else "partial"
+
+    # --- 1. Session Hygiene (0-20) ---
+    # LLM-classified: ratio of sessions without correction spirals
+    if analyzed:
+        no_spiral = sum(1 for a in analyzed if not a.get("had_spiral"))
+        hygiene_score = round(no_spiral / total_analyzed * 20, 1)
+        confidence_note = f" ({confidence}, {total_analyzed} analyzed)" if confidence == "partial" else ""
+        detail = (
+            f"{no_spiral}/{total_analyzed} analyzed sessions spiral-free{confidence_note}"
+        )
+    else:
+        healthy_count = sum(1 for s in sessions if s.message_count < 50) if sessions else 0
+        hygiene_score = round(healthy_count / max(len(sessions), 1) * 20, 1) if sessions else 0.0
+        detail = f"{healthy_count}/{len(sessions) if sessions else 0} sessions under 50 messages"
+
+    breakdown["session_hygiene"] = hygiene_score
+    grades["session_hygiene"] = _grade_dimension(hygiene_score, 20, detail)
+
+    # --- 2. Prompt Quality (0-20) ---
+    # LLM-classified: ratio of sessions without wasted effort
+    if analyzed:
+        good_prompts = sum(
+            1 for a in analyzed if not a.get("wasted_effort")
+        )
+        prompt_score = round(good_prompts / total_analyzed * 20, 1)
+        confidence_note = f" ({confidence})" if confidence == "partial" else ""
+        detail = (
+            f"{good_prompts}/{total_analyzed} sessions had no wasted effort{confidence_note}"
+        )
+    else:
+        specificity = prompt_analysis.get("specificity_score", 0)
+        spiral_count = len(prompt_analysis.get("correction_spirals", []))
+        spiral_free_ratio = 1 - (spiral_count / max(sessions_count, 1))
+        prompt_score = round(
+            (specificity / 100 * 0.6 + spiral_free_ratio * 0.4) * 20, 1,
+        )
+        detail = f"{specificity}% prompt specificity, {spiral_count} spirals"
+
+    breakdown["prompt_quality"] = prompt_score
+    grades["prompt_quality"] = _grade_dimension(prompt_score, 20, detail)
+
+    # --- 3. Cost Efficiency (0-20) ---
+    waste_pct = cost_forensics.get("waste_pct", 0)
+    cost_score = round((1 - waste_pct / 100) * 20, 1)
+    total_cost = cost_forensics.get("total_cost", 0)
+    estimated_waste = cost_forensics.get("estimated_waste", 0)
+    breakdown["cost_efficiency"] = cost_score
+    grades["cost_efficiency"] = _grade_dimension(
+        cost_score, 20,
+        f"${estimated_waste:.2f} wasted of ${total_cost:.2f} total ({waste_pct}% waste rate)",
+    )
+
+    # --- 4. Cache Efficiency (0-20) ---
+    cache_hit_rate = model_usage.get("overall_cache_hit_rate", 0) if isinstance(model_usage, dict) else 0
+    cache_score = round(cache_hit_rate / 100 * 20, 1)
+    breakdown["cache_efficiency"] = cache_score
+    grades["cache_efficiency"] = _grade_dimension(
+        cache_score, 20,
+        f"{cache_hit_rate:.1f}% cache hit rate across all sessions",
+    )
+
+    # --- 5. Tool Utilization (0-20) ---
+    features_available = 9
+    features_used = 0
+
+    claude_features = feature_detection.get("claude_code", {})
+    if claude_features:
+        feature_checks = [
+            bool(claude_features.get("agents", {}).get("count", 0)),
+            bool(claude_features.get("commands", {}).get("count", 0)),
+            bool(claude_features.get("rules", {}).get("total_count", 0)),
+            bool(claude_features.get("skills", {}).get("count", 0)),
+            bool(claude_features.get("hooks", {}).get("configured", False)),
+            bool(claude_features.get("mcp_servers", {}).get("count", 0)),
+            bool(claude_features.get("project_memory", {}).get("has_memory", False)),
+        ]
+        features_used += sum(feature_checks)
+
+    uses_compact = prompt_analysis.get("uses_compact", 0)
+    uses_clear = prompt_analysis.get("uses_clear", 0)
+    if uses_compact > 0:
+        features_used += 1
+    if uses_clear > 0:
+        features_used += 1
+
+    utilization_ratio = features_used / features_available
+    tool_score = round(utilization_ratio * 20, 1)
+    breakdown["tool_utilization"] = tool_score
+    grades["tool_utilization"] = _grade_dimension(
+        tool_score, 20,
+        f"{features_used}/{features_available} features active "
+        f"(/compact {uses_compact}x, /clear {uses_clear}x)",
+    )
+
+    total_score = round(sum(breakdown.values()))
+    return {
+        "score": total_score,
+        "grades": grades,
+        "breakdown": breakdown,
+        "sessions_analyzed": total_analyzed,
+        "confidence": confidence,
+    }
+
+
+def _compute_strengths(
+    profile: dict[str, Any],
+    session_analyses: dict[str, dict] | None = None,
+) -> list[dict[str, str]]:
+    """Extract diverse positive signals — what the user is doing right.
+
+    Sources: MAP classifications, Python metrics, feature detection.
+    Returns a list of {"title": ..., "detail": ..., "icon": ...} dicts.
+    """
+    strengths: list[dict[str, str]] = []
+    analyzed = list((session_analyses or {}).values())
+    sessions = profile.get("all_sessions", [])
+    prompt_analysis = profile.get("prompt_analysis", {})
+    cost_forensics = profile.get("cost_forensics", {})
+    model_usage = profile.get("model_usage", {})
+    feature_detection = profile.get("feature_detection", {})
+
+    # 1. Resolution rate from MAP (outcome = resolved)
+    if analyzed:
+        resolved = sum(1 for a in analyzed if a.get("outcome") == "resolved")
+        total = len(analyzed)
+        rate = round(resolved / total * 100) if total else 0
+        if rate >= 70:
+            strengths.append({
+                "title": "High resolution rate",
+                "detail": f"{resolved}/{total} sessions resolved successfully ({rate}%)",
+                "icon": "\u2705",
+            })
+
+    # 2. Intent diversity from MAP
+    if analyzed:
+        intents = set(a.get("intent", "other") for a in analyzed)
+        if len(intents) >= 4:
+            strengths.append({
+                "title": "Versatile AI usage",
+                "detail": f"Using AI across {len(intents)} task types: {', '.join(sorted(intents))}",
+                "icon": "\U0001f3af",
+            })
+
+    # 3. Low spiral rate
+    if analyzed:
+        no_spiral = sum(1 for a in analyzed if not a.get("had_spiral"))
+        rate = round(no_spiral / len(analyzed) * 100) if analyzed else 0
+        if rate >= 80:
+            strengths.append({
+                "title": "Clean session flow",
+                "detail": f"{rate}% of analyzed sessions had no correction spirals",
+                "icon": "\U0001f9f9",
+            })
+
+    # 4. Good prompt specificity
+    specificity = prompt_analysis.get("specificity_score", 0)
+    if specificity >= 50:
+        strengths.append({
+            "title": "Detailed prompts",
+            "detail": f"{specificity}% of prompts include specific context (100+ chars)",
+            "icon": "\U0001f4dd",
+        })
+
+    # 5. Context management habits
+    uses_compact = prompt_analysis.get("uses_compact", 0)
+    uses_clear = prompt_analysis.get("uses_clear", 0)
+    if uses_compact > 0 or uses_clear > 0:
+        parts = []
+        if uses_clear > 0:
+            parts.append(f"/clear {uses_clear}x")
+        if uses_compact > 0:
+            parts.append(f"/compact {uses_compact}x")
+        strengths.append({
+            "title": "Active context management",
+            "detail": f"Using {', '.join(parts)} to keep sessions focused",
+            "icon": "\U0001f5c2\ufe0f",
+        })
+
+    # 6. Cache efficiency
+    cache_hit_rate = model_usage.get("overall_cache_hit_rate", 0) if isinstance(model_usage, dict) else 0
+    if cache_hit_rate >= 60:
+        strengths.append({
+            "title": "Strong cache utilization",
+            "detail": f"{cache_hit_rate:.1f}% cache hit rate — saving significantly on input tokens",
+            "icon": "\u26a1",
+        })
+
+    # 7. Low waste rate
+    waste_pct = cost_forensics.get("waste_pct", 0)
+    if waste_pct <= 10:
+        strengths.append({
+            "title": "Cost-efficient workflow",
+            "detail": f"Only {waste_pct}% estimated waste — well below the typical 15-25% range",
+            "icon": "\U0001f4b0",
+        })
+
+    # 8. Multi-tool usage
+    active_tools = profile.get("active_tools", [])
+    if len(active_tools) >= 2:
+        tool_names = [t.get("display_name", t.get("tool", "?")) for t in active_tools]
+        strengths.append({
+            "title": "Multi-tool workflow",
+            "detail": f"Using {len(active_tools)} AI tools: {', '.join(tool_names)}",
+            "icon": "\U0001f6e0\ufe0f",
+        })
+
+    # 9. Feature adoption
+    claude_features = feature_detection.get("claude_code", {})
+    adopted = []
+    if claude_features.get("agents", {}).get("count", 0):
+        adopted.append(f"{claude_features['agents']['count']} agents")
+    if claude_features.get("commands", {}).get("count", 0):
+        adopted.append(f"{claude_features['commands']['count']} commands")
+    if claude_features.get("hooks", {}).get("configured"):
+        adopted.append("hooks")
+    if claude_features.get("skills", {}).get("count", 0):
+        adopted.append(f"{claude_features['skills']['count']} skills")
+    if claude_features.get("rules", {}).get("total_count", 0):
+        adopted.append(f"{claude_features['rules']['total_count']} rules")
+    if len(adopted) >= 3:
+        strengths.append({
+            "title": "Power user features",
+            "detail": f"Leveraging {', '.join(adopted)}",
+            "icon": "\U0001f680",
+        })
+
+    # 10. Model diversity (using right model for right task)
+    if isinstance(model_usage, dict):
+        model_count = model_usage.get("model_count", 0)
+        if model_count >= 2:
+            strengths.append({
+                "title": "Strategic model selection",
+                "detail": f"Using {model_count} different models — matching model to task complexity",
+                "icon": "\U0001f9e0",
+            })
+
+    # 11. Good prompt quality from MAP
+    if analyzed:
+        good_prompts = sum(1 for a in analyzed if not a.get("wasted_effort"))
+        rate = round(good_prompts / len(analyzed) * 100) if analyzed else 0
+        if rate >= 70:
+            strengths.append({
+                "title": "Efficient communication",
+                "detail": f"{rate}% of sessions had no wasted effort — clear instructions from the start",
+                "icon": "\U0001f4ac",
+            })
+
+    # 12. Multi-project breadth
+    project_count = profile.get("project_count", 0)
+    if project_count >= 5:
+        strengths.append({
+            "title": "Broad project coverage",
+            "detail": f"AI assistance across {project_count} projects",
+            "icon": "\U0001f4c2",
+        })
+
+    return strengths[:8]  # Cap at 8 most relevant
+
+
+def _grade_dimension(score: float, max_score: float, detail: str) -> dict[str, str]:
+    """Convert a numeric score to a letter grade with detail.
+
+    A = 85-100%, B = 65-84%, C = 45-64%, D = 0-44%
+    """
+    pct = score / max_score * 100 if max_score > 0 else 0
+    if pct >= 85:
+        grade = "A"
+    elif pct >= 65:
+        grade = "B"
+    elif pct >= 45:
+        grade = "C"
+    else:
+        grade = "D"
+    return {"grade": grade, "detail": detail}
+
+
+# ---------------------------------------------------------------------------
 # User profile builder: extracts all real signals from collector data
 # ---------------------------------------------------------------------------
 
@@ -911,17 +1283,9 @@ def build_user_profile(
     return profile
 
 
-def _build_llm_input(
-    profile: dict[str, Any],
-    active_tool_ids: set[str],
-) -> dict[str, Any]:
-    """Build a clean JSON payload for the LLM.
-
-    Includes the profile data + relevant knowledge base, all as structured
-    JSON instead of prose markdown.
-    """
-    # Extract relevant knowledge base entries
-    tool_knowledge = {}
+def _build_tool_knowledge(active_tool_ids: set[str]) -> dict[str, Any]:
+    """Extract relevant knowledge base entries for active tools."""
+    tool_knowledge: dict[str, Any] = {}
     for tool_id in active_tool_ids:
         kb = KNOWLEDGE_BASE.get(tool_id)
         if kb:
@@ -939,45 +1303,24 @@ def _build_llm_input(
                 "anti_patterns": kb["anti_patterns"],
                 "cost_benchmarks": kb.get("cost_benchmarks"),
             }
-
-    return {
-        "profile": {
-            "active_tools": profile.get("active_tools", []),
-            "total_tokens": profile.get("total_tokens", 0),
-            "total_cost": profile.get("total_cost", 0),
-            "session_count": profile.get("session_count", 0),
-            "avg_messages_per_session": profile.get("avg_messages_per_session", 0),
-            "max_session_messages": profile.get("max_session_messages", 0),
-            "session_distribution": profile.get("session_distribution", {}),
-            "tool_call_ratio": profile.get("tool_call_ratio"),
-            "intent_distribution": profile.get("intent_distribution", {}),
-            "peak_hour": profile.get("peak_hour"),
-            "project_details": profile.get("project_details", {}),
-            "model_usage": profile.get("model_usage", {}),
-        },
-        "computed_metrics": {
-            "context_engineering": profile.get("context_engineering", {}),
-            "prompt_analysis": profile.get("prompt_analysis", {}),
-            "anti_patterns": profile.get("anti_patterns", []),
-            "cost_forensics": profile.get("cost_forensics", {}),
-            "session_details": profile.get("session_details", []),
-        },
-        "tool_knowledge": tool_knowledge,
-        "feature_detection": profile.get("feature_detection", {}),
-        "universal_practices": UNIVERSAL_PRACTICES,
-    }
+    return tool_knowledge
 
 
 # ---------------------------------------------------------------------------
-# Main optimizer class
+# Main optimizer class — Map-Reduce-Generate architecture
 # ---------------------------------------------------------------------------
 
 
 class AIUsageOptimizer:
     """Analyzes usage patterns and generates optimization recommendations.
 
-    Python computes deterministic metrics; LLM adds intelligent analysis.
-    Setup guarantees LLM is always available.
+    Architecture:
+      Phase 1 — MAP: Per-session LLM calls with FULL prompts, cached by
+        session ID. Each call classifies intent, spirals, prompt quality.
+      Phase 2 — REDUCE: Pure Python aggregation of per-session results
+        into deterministic score and metrics.
+      Phase 3 — GENERATE: Single LLM call with small pre-computed metrics
+        input, producing prose recommendations.
     """
 
     def __init__(
@@ -996,158 +1339,375 @@ class AIUsageOptimizer:
         sessions: list[Session],
         model_usage: dict[str, Any],
         feature_configs: dict[str, dict[str, Any]] | None = None,
+        on_progress: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, Any]:
-        """Run optimization analysis.
+        """Run MAP → REDUCE → GENERATE optimization analysis.
+
+        Args:
+            on_progress: Optional callback(phase, current, total) for streaming
+                         progress updates. Phase is one of "profile", "map",
+                         "reduce", "generate".
 
         1. Build rich user profile from real data
-        2. Compute deterministic metrics (anti-patterns, costs, etc.)
-        3. Send structured JSON to LLM for intelligent analysis
-        4. Merge Python metrics + LLM analysis into final response
+        2. MAP: Analyze top sessions with LLM (cached per session)
+        3. REDUCE: Compute deterministic score from LLM classifications
+        4. GENERATE: Single LLM call for prose recommendations
+        5. Merge everything into final response
         """
+        _progress = on_progress or (lambda *_: None)
+
         # Build the user profile from real data
+        _progress("profile", 0, 0)
         profile = build_user_profile(
             stats, sessions, model_usage, self._claude, feature_configs,
         )
+        profile["all_sessions"] = sessions
 
-        # LLM-based conversation analysis: detect correction spirals
-        # by reading actual conversation flow, not keyword matching
-        spirals = self._detect_correction_spirals(sessions)
+        # --- Phase 1: MAP — per-session LLM analysis (cached) ---
+        cache = _load_session_cache()
+        session_analyses = self._analyze_sessions_map(
+            sessions, cache, on_progress=_progress,
+        )
+
+        # Build correction spirals from MAP results
+        spirals = self._spirals_from_analyses(sessions, session_analyses)
         profile["prompt_analysis"]["correction_spirals"] = spirals
-        # Recompute anti-patterns with LLM-detected spirals
         profile["anti_patterns"] = _analyze_anti_patterns(
             sessions, profile["prompt_analysis"],
         )
 
-        # Get LLM analysis
-        llm_result = self._get_llm_analysis(profile)
+        # --- Phase 2: REDUCE — deterministic score + strengths ---
+        _progress("reduce", 0, 0)
+        det_score = _compute_deterministic_score(profile, session_analyses)
+        profile["deterministic_score"] = det_score
+        profile["strengths"] = _compute_strengths(profile, session_analyses)
 
-        # Merge: Python-computed metrics (always accurate) + LLM intelligence
-        result = self._merge_results(profile, llm_result)
-        return result
-
-    def _detect_correction_spirals(
-        self,
-        sessions: list[Session],
-    ) -> list[dict[str, Any]]:
-        """Use the LLM to analyze actual conversation flow and detect correction spirals.
-
-        Instead of matching keywords like "no" or "wrong", sends the user's
-        prompt sequence to the LLM to identify sessions where the user was
-        fighting, redirecting, or repeatedly correcting the AI.
-        """
-        # Filter to sessions with enough messages to have spirals
-        candidates = [
-            s for s in sessions
-            if len(s.prompts) >= 5 and s.message_count >= 8
-        ]
-        if not candidates:
-            return []
-
-        # Sort by message count descending — analyze the longest sessions first
-        candidates.sort(key=lambda s: s.message_count, reverse=True)
-        candidates = candidates[:15]  # cap to control token usage
-
-        # Build conversation summaries for the LLM
-        session_data: list[dict[str, Any]] = []
-        for s in candidates:
-            # Take up to 12 prompts, truncated, to show the conversation flow
-            prompts_sample = [p[:120] for p in s.prompts[:12]]
-            session_data.append({
-                "id": s.id[:12],
-                "tool": s.tool.value,
-                "project": s.project.split("/")[-1] if s.project else "unknown",
-                "message_count": s.message_count,
-                "total_tokens": s.total_tokens,
-                "user_prompts": prompts_sample,
-            })
-
-        prompt = f"""Analyze these AI coding sessions. Each entry contains the user's prompts in order (assistant responses are not shown, but you can infer the flow).
-
-Identify sessions where the user is stuck in a CORRECTION SPIRAL — repeatedly redirecting, correcting, or fighting the AI instead of making progress. Look for:
-- User rephrasing the same request multiple times
-- User expressing frustration or disagreement with AI output
-- User undoing or reverting AI changes
-- Back-and-forth where the conversation isn't progressing
-- User having to re-explain what they want
-
-For each session with a correction spiral, explain WHAT went wrong (e.g. "user asked for X but AI kept doing Y", "unclear initial prompt led to 5 rounds of correction").
-
-Return ONLY this JSON (no other text):
-{{
-  "spirals": [
-    {{
-      "id": "session_id",
-      "corrections": <number of correction messages>,
-      "correction_rate": <percentage of prompts that are corrections>,
-      "what_went_wrong": "<1-sentence explanation of the spiral>"
-    }}
-  ]
-}}
-
-If no sessions have correction spirals, return {{"spirals": []}}.
-
-Sessions to analyze:
-{json.dumps(session_data, indent=2, default=str)}"""
-
-        system_msg = (
-            "You are a conversation analyst. Analyze user prompt sequences "
-            "to detect correction spirals. Be precise — only flag sessions "
-            "where the user is genuinely fighting the AI, not normal iteration. "
-            "Return ONLY valid JSON, no markdown fences, no explanation."
+        # --- Phase 3: GENERATE — prose from pre-computed metrics ---
+        _progress("generate", 0, 0)
+        llm_result = self._get_llm_analysis(
+            profile, session_analyses,
         )
 
-        parsed = None
+        # Merge everything
+        return self._merge_results(profile, llm_result)
+
+    # ------------------------------------------------------------------
+    # Phase 1: MAP — per-session LLM analysis
+    # ------------------------------------------------------------------
+
+    def _get_map_concurrency(self) -> int:
+        """Determine MAP phase concurrency based on provider.
+
+        Ollama: 1 (single GPU, concurrent requests just queue).
+        Cloud providers: 4 (parallel API calls).
+        Config override via map_concurrency > 0.
+        """
+        try:
+            configured = getattr(self._config.llm, "map_concurrency", 0)
+            if isinstance(configured, int) and configured > 0:
+                return configured
+            provider = self._config.llm.provider.lower()
+        except (AttributeError, TypeError):
+            return 1
+        if provider == "ollama":
+            return 1
+        return 4
+
+    def _analyze_sessions_map(
+        self,
+        sessions: list[Session],
+        cache: dict[str, dict[str, Any]],
+        on_progress: Callable[[str, int, int], None] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """MAP phase: analyze uncached sessions with LLM (concurrent).
+
+        Top 30 sessions by cost. Caps new analyses at _MAX_NEW_PER_MAP_RUN.
+        Cache written once after all sessions complete (not per-session).
+        Concurrency auto-detected: 1 for Ollama, 4 for cloud providers.
+        """
+        _progress = on_progress or (lambda *_: None)
+
+        # Select top 30 sessions by cost (most expensive = most worth analyzing)
+        top_sessions = sorted(
+            sessions,
+            key=lambda s: s.estimated_cost_usd,
+            reverse=True,
+        )[:30]
+
+        to_analyze = [s for s in top_sessions if s.id not in cache]
+        # Cap new sessions per run for predictable latency
+        to_analyze = to_analyze[:_MAX_NEW_PER_MAP_RUN]
+        total = len(to_analyze)
+
+        uncached_count = len([s for s in top_sessions if s.id not in cache])
+        if to_analyze:
+            logging.info(
+                "MAP phase: %d sessions to analyze (%d cached, %d skipped due to cap)",
+                total,
+                len(top_sessions) - uncached_count,
+                max(0, uncached_count - _MAX_NEW_PER_MAP_RUN),
+            )
+
+        # Concurrent analysis (provider-aware)
+        results: dict[str, dict[str, Any]] = {}
+        workers = self._get_map_concurrency()
+
+        if to_analyze:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(self._analyze_single_session, s): s
+                    for s in to_analyze
+                }
+                for idx, future in enumerate(as_completed(futures)):
+                    _progress("map", idx + 1, total)
+                    session = futures[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            results[session.id] = result
+                    except Exception as e:
+                        logging.warning(
+                            "MAP failed for session %s: %s",
+                            session.id[:12], e,
+                        )
+
+        # Build new cache (immutable — never mutate caller's data)
+        updated_cache = {**cache, **results}
+
+        # Single batch write (not per-session)
+        if results:
+            _save_session_cache(updated_cache)
+
+        # Return only analyses for sessions in the current top-30
+        top_ids = {s.id for s in top_sessions}
+        return {sid: analysis for sid, analysis in updated_cache.items() if sid in top_ids}
+
+    def _analyze_single_session(
+        self,
+        session: Session,
+    ) -> dict[str, Any] | None:
+        """Analyze a single session with the LLM. Full prompts, zero truncation."""
+        if not session.prompts:
+            return None
+
+        # Format ALL prompts — no truncation
+        prompts_text = "\n".join(
+            f"{i + 1}. {p}" for i, p in enumerate(session.prompts)
+        )
+
+        project = (
+            session.project.split("/")[-1] if session.project else "unknown"
+        )
+
+        prompt = SESSION_ANALYSIS_PROMPT.format(
+            tool=session.tool.value if hasattr(session.tool, "value") else str(session.tool),
+            project=project,
+            message_count=session.message_count,
+            total_tokens=session.total_tokens,
+            prompts=prompts_text,
+        )
+
+        system_msg = (
+            "You are a coding session analyst. Analyze the prompt sequence "
+            "and classify this session. Return ONLY valid JSON."
+        )
+
+        for attempt in range(2):
+            raw = get_completion(
+                prompt,
+                self._config.llm,
+                system=system_msg,
+                max_tokens=500,
+                timeout=30,
+            )
+
+            if raw.startswith("[error]"):
+                logging.warning(
+                    "Session analysis failed for %s: %s",
+                    session.id[:12], raw,
+                )
+                return None
+
+            try:
+                parsed = self._extract_json(raw)
+                # Ensure expected fields exist with correct types
+                return {
+                    "intent": parsed.get("intent", "other"),
+                    "had_spiral": bool(parsed.get("had_spiral", False)),
+                    "spiral_detail": str(parsed.get("spiral_detail", "")),
+                    "prompt_quality": str(parsed.get("prompt_quality", "")),
+                    "outcome": parsed.get("outcome", "resolved"),
+                    "wasted_effort": str(parsed.get("wasted_effort", "")),
+                    "actionable_fix": str(parsed.get("actionable_fix", "")),
+                }
+            except json.JSONDecodeError:
+                logging.debug(
+                    "Session analysis JSON parse failed (attempt %d/2) for %s",
+                    attempt + 1, session.id[:12],
+                )
+
+        return None
+
+    def _spirals_from_analyses(
+        self,
+        sessions: list[Session],
+        session_analyses: dict[str, dict],
+    ) -> list[dict[str, Any]]:
+        """Extract correction spiral data from MAP results."""
+        session_map = {s.id: s for s in sessions}
+        spirals: list[dict[str, Any]] = []
+
+        for sid, analysis in session_analyses.items():
+            if not analysis.get("had_spiral"):
+                continue
+            session = session_map.get(sid)
+            if not session:
+                continue
+
+            project = (
+                session.project.split("/")[-1]
+                if session.project else "unknown"
+            )
+            # Estimate corrections as ~30% of prompts in a spiral session
+            prompt_count = len(session.prompts) if session.prompts else 0
+            est_corrections = max(3, round(prompt_count * 0.3))
+            est_rate = round(est_corrections / max(prompt_count, 1) * 100)
+            spirals.append({
+                "project": project,
+                "messages": session.message_count,
+                "corrections": est_corrections,
+                "correction_rate": est_rate,
+                "what_went_wrong": analysis.get("spiral_detail", ""),
+                "first_prompt": (
+                    session.prompts[0][:120] if session.prompts else ""
+                ),
+                "tokens_wasted": session.total_tokens,
+            })
+
+        return sorted(
+            spirals, key=lambda x: x["tokens_wasted"], reverse=True,
+        )[:10]
+
+    # ------------------------------------------------------------------
+    # Phase 3: GENERATE — prose from pre-computed metrics
+    # ------------------------------------------------------------------
+
+    def _get_llm_analysis(
+        self,
+        profile: dict[str, Any],
+        session_analyses: dict[str, dict],
+    ) -> dict[str, Any]:
+        """GENERATE phase: single LLM call with small pre-computed input.
+
+        The LLM writes prose about pre-computed facts. It does NOT compute
+        any numbers — score and grades are already determined.
+        """
+        det_score = profile.get("deterministic_score", {})
+        active_tool_ids = {
+            t["tool"] for t in profile.get("active_tools", [])
+        }
+
+        # Build session observations summary from MAP results
+        observations: list[str] = []
+        for sid, analysis in list(session_analyses.items())[:15]:
+            parts = [f"Session {sid[:12]}:"]
+            parts.append(f"intent={analysis.get('intent', '?')}")
+            if analysis.get("had_spiral"):
+                parts.append(f"SPIRAL: {analysis.get('spiral_detail', '')}")
+            if analysis.get("wasted_effort"):
+                parts.append(f"waste: {analysis['wasted_effort']}")
+            if analysis.get("actionable_fix"):
+                parts.append(f"fix: {analysis['actionable_fix']}")
+            observations.append(" | ".join(parts))
+
+        # Build compact summaries for the prompt
+        anti_patterns = profile.get("anti_patterns", [])
+        anti_summary = "; ".join(
+            f"{ap['pattern']} ({ap.get('severity', '?')}, {ap.get('count', 0)}x)"
+            for ap in anti_patterns
+        ) or "None detected"
+
+        cost_f = profile.get("cost_forensics", {})
+        cost_summary = (
+            f"Total: ${cost_f.get('total_cost', 0):.2f}, "
+            f"Waste: ${cost_f.get('estimated_waste', 0):.2f} "
+            f"({cost_f.get('waste_pct', 0)}%)"
+        )
+
+        # Extract real project details (strip sample_prompts for brevity)
+        project_details = {
+            k: {kk: vv for kk, vv in v.items() if kk != "sample_prompts"}
+            for k, v in profile.get("project_details", {}).items()
+        }
+
+        session_patterns = json.dumps({
+            "count": profile.get("session_count", 0),
+            "distribution": profile.get("session_distribution", {}),
+            "intent_distribution": profile.get("intent_distribution", {}),
+            "project_details": project_details,
+        }, default=str)
+
+        # Build explicit project list so the LLM can't invent fake names
+        real_projects_section = "\n".join(
+            f"- {name}: {details.get('sessions', 0)} sessions, "
+            f"{details.get('tokens', 0)} tokens, "
+            f"${details.get('cost', 0):.2f}, "
+            f"intents={dict(details.get('intents', {}))}"
+            for name, details in project_details.items()
+        ) or "No projects found"
+
+        tool_knowledge = _build_tool_knowledge(active_tool_ids)
+
+        prompt = SYNTHESIS_PROMPT.format(
+            score=det_score.get("score", 0),
+            grades=json.dumps(det_score.get("grades", {}), default=str),
+            anti_patterns_summary=anti_summary,
+            cost_summary=cost_summary,
+            session_patterns=session_patterns,
+            features=json.dumps(
+                profile.get("feature_detection", {}), default=str,
+            ),
+            real_projects=real_projects_section,
+            session_observations="\n".join(observations) or "No sessions analyzed",
+            tool_knowledge=json.dumps(tool_knowledge, default=str),
+        )
+
+        system_msg = (
+            "You are an AI coding workflow consultant. "
+            "Return ONLY valid JSON. No markdown fences, no explanation."
+        )
+
         for attempt in range(3):
             raw = get_completion(
                 prompt,
                 self._config.llm,
                 system=system_msg,
-                max_tokens=2000,
+                max_tokens=4000,
+                timeout=60,
             )
 
             if raw.startswith("[error]"):
-                logging.warning("Correction spiral LLM call failed: %s", raw)
-                return []
+                return {"error": raw, "source": "error"}
 
             try:
                 parsed = self._extract_json(raw)
-                break
+                parsed["source"] = "llm"
+                return parsed
             except (json.JSONDecodeError, IndexError, KeyError):
                 logging.debug(
-                    "Correction spiral JSON parse failed (attempt %d/3)",
+                    "Synthesis JSON parse failed (attempt %d/3): %s",
                     attempt + 1,
+                    raw[:200] if raw else "empty",
                 )
 
-        if parsed is None:
-            logging.warning("Correction spiral detection failed after 3 attempts")
-            return []
+        return {
+            "error": "LLM returned invalid JSON after 3 attempts. Try a different model.",
+            "source": "error",
+        }
 
-        # Map LLM results back to session data
-        spiral_results: list[dict[str, Any]] = []
-        for spiral in parsed.get("spirals", []):
-            sid_prefix = spiral.get("id", "")
-            matched = next(
-                (s for s in candidates if s.id[:12] == sid_prefix), None,
-            )
-            if matched:
-                spiral_results.append({
-                    "project": (
-                        matched.project.split("/")[-1]
-                        if matched.project else "unknown"
-                    ),
-                    "messages": matched.message_count,
-                    "corrections": spiral.get("corrections", 0),
-                    "correction_rate": spiral.get("correction_rate", 0),
-                    "what_went_wrong": spiral.get("what_went_wrong", ""),
-                    "first_prompt": (
-                        matched.prompts[0][:120] if matched.prompts else ""
-                    ),
-                    "tokens_wasted": matched.total_tokens,
-                })
-
-        return sorted(
-            spiral_results, key=lambda x: x["corrections"], reverse=True,
-        )[:10]
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_json(raw: str) -> dict[str, Any]:
@@ -1183,68 +1743,22 @@ Sessions to analyze:
 
         raise json.JSONDecodeError("No JSON object found", cleaned, 0)
 
-    def _get_llm_analysis(
-        self,
-        profile: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Get LLM-powered analysis. Returns parsed JSON or error dict.
-
-        Retries up to 2 times on invalid JSON to handle flaky model output.
-        """
-        active_tool_ids = {
-            t["tool"] for t in profile.get("active_tools", [])
-        }
-
-        # Build structured JSON input for the LLM
-        llm_input = _build_llm_input(profile, active_tool_ids)
-        input_json = json.dumps(llm_input, indent=2, default=str)
-
-        prompt = OPTIMIZER_PROMPT.format(input_json=input_json)
-        system_msg = (
-            "You are an expert AI coding tool optimizer. "
-            "Analyze the structured usage data and return ONLY valid JSON. "
-            "No markdown fences, no explanation — just the JSON object."
-        )
-
-        last_error = ""
-        for attempt in range(3):
-            raw = get_completion(
-                prompt,
-                self._config.llm,
-                system=system_msg,
-                max_tokens=4000,
-            )
-
-            if raw.startswith("[error]"):
-                return {"error": raw, "source": "error"}
-
-            try:
-                parsed = self._extract_json(raw)
-                parsed["source"] = "llm"
-                return parsed
-            except (json.JSONDecodeError, IndexError, KeyError):
-                last_error = raw[:200] if raw else "empty response"
-                logging.debug(
-                    "LLM JSON parse failed (attempt %d/3): %s",
-                    attempt + 1,
-                    last_error,
-                )
-
-        return {
-            "error": "LLM returned invalid JSON after 3 attempts. Try a different model.",
-            "source": "error",
-        }
+    # ------------------------------------------------------------------
+    # Merge: deterministic score + Python metrics + LLM prose
+    # ------------------------------------------------------------------
 
     def _merge_results(
         self,
         profile: dict[str, Any],
         llm_result: dict[str, Any],
     ) -> dict[str, Any]:
-        """Merge Python-computed metrics with LLM analysis.
+        """Merge Python-computed metrics with LLM prose.
 
-        Python metrics are always included (deterministic, accurate).
-        LLM fields are included when available, with sensible defaults.
+        Score and grades are ALWAYS deterministic (from REDUCE phase).
+        LLM provides prose: developer_profile, recommendations, etc.
         """
+        det_score = profile.get("deterministic_score", {})
+
         # Python-computed fields (always accurate)
         result: dict[str, Any] = {
             "anti_patterns": profile.get("anti_patterns", []),
@@ -1257,7 +1771,7 @@ Sessions to analyze:
                 "total_cost": profile.get("total_cost", 0),
                 "session_count": profile.get("session_count", 0),
                 "avg_messages": profile.get(
-                    "avg_messages_per_session", 0
+                    "avg_messages_per_session", 0,
                 ),
                 "cache_hit_rate": (
                     profile.get("model_usage", {})
@@ -1266,6 +1780,11 @@ Sessions to analyze:
                 "active_tools": len(profile.get("active_tools", [])),
             },
             "feature_detection": profile.get("feature_detection", {}),
+            # Strengths — diverse positive signals (from REDUCE phase)
+            "strengths": profile.get("strengths", []),
+            # Deterministic score (NEW — always from REDUCE, never LLM)
+            "score": det_score.get("score", 0),
+            "grades": det_score.get("grades", {}),
         }
 
         # Handle LLM errors
@@ -1279,9 +1798,6 @@ Sessions to analyze:
                 "  ollama serve\n\n"
                 "Then refresh and try again."
             )
-            # Provide defaults so the frontend can still render Python metrics
-            result["score"] = 0
-            result["grades"] = {}
             result["recommendations"] = []
             result["missing_features"] = []
             result["project_insights"] = []
@@ -1289,10 +1805,8 @@ Sessions to analyze:
             result["developer_profile"] = {}
             return result
 
-        # LLM-provided fields (intelligent analysis)
-        result["score"] = llm_result.get("score", 0)
+        # LLM-provided prose (intelligent analysis)
         result["developer_profile"] = llm_result.get("developer_profile", {})
-        result["grades"] = llm_result.get("grades", {})
         result["recommendations"] = llm_result.get("recommendations", [])
         result["missing_features"] = llm_result.get("missing_features", [])
         result["project_insights"] = llm_result.get("project_insights", [])

@@ -48,6 +48,7 @@ def get_completion(
     config: LLMConfig,
     system: str = "You are a developer productivity analyst.",
     max_tokens: int = 1024,
+    timeout: int = 60,
 ) -> str:
     """Get a completion from the configured LLM provider via litellm.
 
@@ -100,7 +101,7 @@ def get_completion(
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": max_tokens,
-            "timeout": 60,
+            "timeout": timeout,
         }
         if api_key:
             kwargs["api_key"] = api_key
