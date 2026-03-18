@@ -22,6 +22,7 @@ from agenttop.collectors.copilot import CopilotCollector
 from agenttop.collectors.cursor import CursorCollector
 from agenttop.collectors.kiro import KiroCollector
 from agenttop.config import Config, load_config
+from agenttop.formatting import check_budget
 from agenttop.web.graph_builder import GraphBuilder
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -128,6 +129,37 @@ def api_hours(days: int = 0) -> JSONResponse:
             if tokens > 0:
                 merged[str(hour)] = merged.get(str(hour), 0) + tokens
     return JSONResponse(merged)
+
+
+@app.get("/api/budget")
+def api_budget(days: int = 0) -> JSONResponse:
+    """Get budget status for the current period."""
+    _init()
+    stats = _get_all_stats(days)
+    total_cost = sum(s.get("estimated_cost_today", 0.0) for s in stats)
+
+    # Budget only applies to today (days=1)
+    if days == 1:
+        budget = _config.llm.max_budget_per_day
+        budget_info = check_budget(total_cost, budget)
+
+        return JSONResponse({
+            "enabled": budget > 0,
+            "budget": budget,
+            "total_cost": total_cost,
+            "ratio": budget_info.ratio,
+            "remaining": budget_info.remaining,
+            "status": budget_info.status.value,  # Use .value to get string instead of enum
+        })
+
+    return JSONResponse({
+        "enabled": False,
+        "budget": 0.0,
+        "total_cost": total_cost,
+        "ratio": 0.0,
+        "remaining": 0.0,
+        "status": "ok",
+    })
 
 
 class OptimizeRequest(BaseModel):

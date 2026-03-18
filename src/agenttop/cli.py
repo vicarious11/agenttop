@@ -72,6 +72,13 @@ def stats(days: int) -> None:
     from agenttop.collectors.cursor import CursorCollector
     from agenttop.collectors.kiro import KiroCollector
     from agenttop.config import load_config
+    from agenttop.formatting import (
+        BudgetStatus,
+        check_budget,
+        format_budget_message,
+        human_cost,
+        human_tokens,
+    )
 
     config = load_config()
     range_label = _range_label(days)
@@ -120,6 +127,16 @@ def stats(days: int) -> None:
         f"{human_cost(total_cost)} est. cost"
     )
     click.echo("=" * 60)
+
+    # Check budget and show warning if needed (only for today)
+    if days == 1:
+        budget = config.llm.max_budget_per_day
+        if budget > 0:
+            budget_info = check_budget(total_cost, budget)
+            if budget_info.status != BudgetStatus.OK:
+                message, color = format_budget_message(budget_info)
+                click.echo(click.style(message, fg=color))
+
     click.echo("Run `agenttop` for the interactive dashboard.")
 
 

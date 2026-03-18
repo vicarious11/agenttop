@@ -78,10 +78,12 @@ class AgentTop(App):
         self.collectors = [c for c in candidates if c.is_available()]
 
     def compose(self) -> ComposeResult:
+        # Budget only applies to today view (days=1)
+        budget = self.config.llm.max_budget_per_day if self.days == 1 else 0.0
         yield Header()
         with TabbedContent():
             with TabPane("Dashboard", id="dashboard"):
-                yield DashboardView(self.collectors, self.db, self.days)
+                yield DashboardView(self.collectors, self.db, self.days, budget)
             with TabPane("Sessions", id="sessions"):
                 yield SessionsView(self.collectors, self.db, self.days)
             with TabPane("Analysis", id="analysis"):
@@ -117,4 +119,6 @@ class AgentTop(App):
 
     def _refresh_data(self) -> None:
         dashboard = self.query_one(DashboardView)
-        dashboard.refresh_stats(self.collectors, self.days)
+        # Budget only applies to today view (days=1)
+        budget = self.config.llm.max_budget_per_day if self.days == 1 else 0.0
+        dashboard.refresh_stats(self.collectors, self.days, budget)
