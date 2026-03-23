@@ -330,7 +330,9 @@ class TestMapPhase:
             "cached-1": {"intent": "debugging", "had_spiral": False},
         }
 
-        mock_response = json.dumps({
+        # Batch MAP returns a JSON array with session_id
+        mock_response = json.dumps([{
+            "session_id": "new-1",
             "intent": "greenfield",
             "had_spiral": False,
             "spiral_detail": "",
@@ -338,7 +340,7 @@ class TestMapPhase:
             "outcome": "resolved",
             "wasted_effort": "",
             "actionable_fix": "",
-        })
+        }])
 
         with patch(
             "agenttop.web.optimizer.get_completion",
@@ -348,7 +350,7 @@ class TestMapPhase:
         ):
             result = opt._analyze_sessions_map(sessions, existing_cache)
 
-        # Only new-1 should have been sent to LLM
+        # 1 batch call for all uncached sessions
         assert mock_llm.call_count == 1
         assert "cached-1" in result
         assert "new-1" in result

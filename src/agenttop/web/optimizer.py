@@ -17,7 +17,6 @@ import logging
 import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -348,6 +347,37 @@ Rules:
 - "had_spiral" means user repeatedly corrected, redirected, or fought the AI (3+ times)
 - "wasted_effort" should be empty string if the session was efficient
 - Return ONLY the JSON object, no markdown fences, no explanation
+"""
+
+# ---------------------------------------------------------------------------
+# Batched MAP: analyze multiple sessions in a single LLM call
+# ---------------------------------------------------------------------------
+_MAX_PROMPTS_HEAD = 5         # first N prompts kept per session
+_MAX_PROMPTS_TAIL = 2         # last N prompts kept per session
+_MAX_PROMPT_CHARS = 200       # truncate each prompt to this length
+
+SESSION_BATCH_ANALYSIS_PROMPT = """\
+Analyze these {count} AI coding sessions. For each, classify intent and quality.
+
+{sessions_block}
+
+Return a JSON array with one object per session (SAME ORDER as above):
+[
+  {{
+    "session_id": "<exact session ID from above>",
+    "intent": "<debugging|greenfield|refactoring|exploration|devops|documentation|code_review|other>",
+    "had_spiral": <true|false>,
+    "spiral_detail": "<if spiral: 1 sentence. if no spiral: empty string>",
+    "prompt_quality": "<1 sentence>",
+    "outcome": "<resolved|abandoned|pivoted>",
+    "wasted_effort": "<empty string if efficient, else 1 sentence>",
+    "actionable_fix": "<1 sentence: what would have saved time>"
+  }}
+]
+
+Rules:
+- "had_spiral" = user corrected/redirected the AI 3+ times
+- Return ONLY the JSON array, no markdown, no explanation
 """
 
 SYNTHESIS_PROMPT = """\
@@ -1395,23 +1425,29 @@ class AIUsageOptimizer:
     # Phase 1: MAP — per-session LLM analysis
     # ------------------------------------------------------------------
 
-    def _get_map_concurrency(self) -> int:
-        """Determine MAP phase concurrency based on provider.
+    @staticmethod
+    def _truncate_prompts(prompts: list[str]) -> str:
+        """Keep first N + last M prompts, truncate each to max chars."""
+        if not prompts:
+            return "(no prompts)"
+        head = prompts[:_MAX_PROMPTS_HEAD]
+        tail = prompts[-_MAX_PROMPTS_TAIL:] if len(prompts) > _MAX_PROMPTS_HEAD + _MAX_PROMPTS_TAIL else prompts[_MAX_PROMPTS_HEAD:]
+        selected = head + ([f"... ({len(prompts) - _MAX_PROMPTS_HEAD - len(tail)} skipped)"] if tail and len(prompts) > _MAX_PROMPTS_HEAD + _MAX_PROMPTS_TAIL else []) + tail
+        return "\n".join(
+            f"{i + 1}. {p[:_MAX_PROMPT_CHARS]}{'...' if len(p) > _MAX_PROMPT_CHARS else ''}"
+            for i, p in enumerate(selected)
+        )
 
-        Ollama: 1 (single GPU, concurrent requests just queue).
-        Cloud providers: 4 (parallel API calls).
-        Config override via map_concurrency > 0.
-        """
-        try:
-            configured = getattr(self._config.llm, "map_concurrency", 0)
-            if isinstance(configured, int) and configured > 0:
-                return configured
-            provider = self._config.llm.provider.lower()
-        except (AttributeError, TypeError):
-            return 1
-        if provider == "ollama":
-            return 1
-        return 4
+    def _format_session_block(self, session: Session) -> str:
+        """Format a single session for the batch prompt."""
+        project = session.project.split("/")[-1] if session.project else "unknown"
+        tool = session.tool.value if hasattr(session.tool, "value") else str(session.tool)
+        return (
+            f"### Session ID: {session.id}\n"
+            f"Tool: {tool} | Project: {project} | "
+            f"Messages: {session.message_count} | Tokens: {session.total_tokens}\n"
+            f"Prompts:\n{self._truncate_prompts(session.prompts)}\n"
+        )
 
     def _analyze_sessions_map(
         self,
@@ -1419,96 +1455,164 @@ class AIUsageOptimizer:
         cache: dict[str, dict[str, Any]],
         on_progress: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, dict[str, Any]]:
-        """MAP phase: analyze uncached sessions with LLM (concurrent).
+        """MAP phase: 1 batched LLM call for all uncached sessions.
 
         Top 30 sessions by cost. Caps new analyses at _MAX_NEW_PER_MAP_RUN.
-        Cache written once after all sessions complete (not per-session).
-        Concurrency auto-detected: 1 for Ollama, 4 for cloud providers.
+        All uncached sessions sent in a single prompt → JSON array back.
+        Falls back to individual calls if batch parse fails.
         """
         _progress = on_progress or (lambda *_: None)
 
-        # Select top 30 sessions by cost (most expensive = most worth analyzing)
         top_sessions = sorted(
             sessions,
             key=lambda s: s.estimated_cost_usd,
             reverse=True,
         )[:30]
 
-        to_analyze = [s for s in top_sessions if s.id not in cache]
-        # Cap new sessions per run for predictable latency
+        to_analyze = [s for s in top_sessions if s.id not in cache and s.prompts]
         to_analyze = to_analyze[:_MAX_NEW_PER_MAP_RUN]
-        total = len(to_analyze)
 
-        uncached_count = sum(1 for s in top_sessions if s.id not in cache)
         if to_analyze:
-            logging.info(
-                "MAP phase: %d sessions to analyze (%d cached, %d skipped due to cap)",
-                total,
-                len(top_sessions) - uncached_count,
-                max(0, uncached_count - _MAX_NEW_PER_MAP_RUN),
-            )
+            logging.info("MAP phase: %d sessions in 1 batch call", len(to_analyze))
 
-        # Concurrent analysis (provider-aware)
         results: dict[str, dict[str, Any]] = {}
-        workers = self._get_map_concurrency()
-        # Snapshot LLM config before threading — Pydantic BaseModel is read-only
-        # but snapshot guarantees no future mutation can cause a race.
-        llm_config_snapshot = self._config.llm.model_copy()
 
         if to_analyze:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(self._analyze_single_session, s, llm_config_snapshot): s
-                    for s in to_analyze
-                }
-                for idx, future in enumerate(as_completed(futures)):
-                    _progress("map", idx + 1, total)
-                    session = futures[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            results[session.id] = result
-                    except Exception as e:
-                        logging.warning(
-                            "MAP failed for session %s: %s",
-                            session.id[:12], e,
-                        )
+            _progress("map", 0, len(to_analyze))
+            batch_results = self._analyze_batch(to_analyze)
 
-        # Build new cache (immutable — never mutate caller's data)
+            if batch_results:
+                results = batch_results
+            else:
+                # Fallback: individual calls if batch failed
+                logging.info("Batch MAP failed, falling back to individual calls")
+                for idx, s in enumerate(to_analyze):
+                    _progress("map", idx + 1, len(to_analyze))
+                    result = self._analyze_single_session(s)
+                    if result:
+                        results[s.id] = result
+
+            _progress("map", len(to_analyze), len(to_analyze))
+
         updated_cache = {**cache, **results}
-
-        # Single batch write (not per-session)
         if results:
             _save_session_cache(updated_cache)
 
-        # Return only analyses for sessions in the current top-30
         top_ids = {s.id for s in top_sessions}
         return {sid: analysis for sid, analysis in updated_cache.items() if sid in top_ids}
+
+    def _analyze_batch(
+        self,
+        sessions: list[Session],
+    ) -> dict[str, dict[str, Any]] | None:
+        """Analyze all sessions in a single LLM call. Returns dict or None on failure."""
+        sessions_block = "\n".join(
+            self._format_session_block(s) for s in sessions
+        )
+        prompt = SESSION_BATCH_ANALYSIS_PROMPT.format(
+            count=len(sessions),
+            sessions_block=sessions_block,
+        )
+        system_msg = (
+            "You are a coding session analyst. Classify each session. "
+            "Return ONLY a valid JSON array."
+        )
+
+        for attempt in range(2):
+            raw = get_completion(
+                prompt,
+                self._config.llm,
+                system=system_msg,
+                max_tokens=500 * len(sessions),
+                timeout=60,
+            )
+            if raw.startswith("[error]"):
+                logging.warning("Batch MAP LLM error: %s", raw)
+                return None
+            try:
+                parsed = self._extract_json_array(raw)
+                return self._parse_batch_response(parsed, sessions)
+            except (json.JSONDecodeError, ValueError):
+                logging.debug("Batch MAP parse failed (attempt %d/2)", attempt + 1)
+        return None
+
+    @staticmethod
+    def _extract_json_array(raw: str) -> list[dict[str, Any]]:
+        """Extract a JSON array from LLM output."""
+        cleaned = raw.strip()
+        cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned.rsplit("```", 1)[0]
+        cleaned = cleaned.strip()
+
+        try:
+            result = json.loads(cleaned)
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: find [ ... ]
+        start = cleaned.find("[")
+        end = cleaned.rfind("]")
+        if start != -1 and end > start:
+            result = json.loads(cleaned[start : end + 1])
+            if isinstance(result, list):
+                return result
+
+        raise json.JSONDecodeError("No JSON array found", cleaned, 0)
+
+    @staticmethod
+    def _parse_batch_response(
+        parsed: list[dict[str, Any]],
+        sessions: list[Session],
+    ) -> dict[str, dict[str, Any]]:
+        """Map batch response array back to session IDs."""
+        session_ids = {s.id for s in sessions}
+        results: dict[str, dict[str, Any]] = {}
+
+        for item in parsed:
+            sid = item.get("session_id", "")
+            if sid not in session_ids:
+                # Try matching by order if session_id missing/wrong
+                continue
+            results[sid] = {
+                "intent": item.get("intent", "other"),
+                "had_spiral": bool(item.get("had_spiral", False)),
+                "spiral_detail": str(item.get("spiral_detail", "")),
+                "prompt_quality": str(item.get("prompt_quality", "")),
+                "outcome": item.get("outcome", "resolved"),
+                "wasted_effort": str(item.get("wasted_effort", "")),
+                "actionable_fix": str(item.get("actionable_fix", "")),
+            }
+
+        # If LLM didn't return session_ids but order matches, map by index
+        if not results and len(parsed) == len(sessions):
+            for session, item in zip(sessions, parsed):
+                results[session.id] = {
+                    "intent": item.get("intent", "other"),
+                    "had_spiral": bool(item.get("had_spiral", False)),
+                    "spiral_detail": str(item.get("spiral_detail", "")),
+                    "prompt_quality": str(item.get("prompt_quality", "")),
+                    "outcome": item.get("outcome", "resolved"),
+                    "wasted_effort": str(item.get("wasted_effort", "")),
+                    "actionable_fix": str(item.get("actionable_fix", "")),
+                }
+
+        return results
 
     def _analyze_single_session(
         self,
         session: Session,
-        llm_config: Any = None,
     ) -> dict[str, Any] | None:
-        """Analyze a single session with the LLM. Full prompts, zero truncation.
-
-        Args:
-            llm_config: Optional LLMConfig snapshot for thread-safe concurrent use.
-                        Falls back to self._config.llm if not provided.
-        """
+        """Fallback: analyze one session individually if batch fails."""
         if not session.prompts:
             return None
 
-        config = llm_config or self._config.llm
-
-        # Format ALL prompts — no truncation
-        prompts_text = "\n".join(
-            f"{i + 1}. {p}" for i, p in enumerate(session.prompts)
-        )
-
-        project = (
-            session.project.split("/")[-1] if session.project else "unknown"
-        )
+        prompts_text = self._truncate_prompts(session.prompts)
+        project = session.project.split("/")[-1] if session.project else "unknown"
 
         prompt = SESSION_ANALYSIS_PROMPT.format(
             tool=session.tool.value if hasattr(session.tool, "value") else str(session.tool),
@@ -1526,22 +1630,16 @@ class AIUsageOptimizer:
         for attempt in range(2):
             raw = get_completion(
                 prompt,
-                config,
+                self._config.llm,
                 system=system_msg,
                 max_tokens=500,
                 timeout=30,
             )
-
             if raw.startswith("[error]"):
-                logging.warning(
-                    "Session analysis failed for %s: %s",
-                    session.id[:12], raw,
-                )
+                logging.warning("Session analysis failed for %s: %s", session.id[:12], raw)
                 return None
-
             try:
                 parsed = self._extract_json(raw)
-                # Ensure expected fields exist with correct types
                 return {
                     "intent": parsed.get("intent", "other"),
                     "had_spiral": bool(parsed.get("had_spiral", False)),
@@ -1552,10 +1650,7 @@ class AIUsageOptimizer:
                     "actionable_fix": str(parsed.get("actionable_fix", "")),
                 }
             except json.JSONDecodeError:
-                logging.debug(
-                    "Session analysis JSON parse failed (attempt %d/2) for %s",
-                    attempt + 1, session.id[:12],
-                )
+                logging.debug("Session analysis JSON parse failed (attempt %d/2) for %s", attempt + 1, session.id[:12])
 
         return None
 
@@ -1820,8 +1915,14 @@ class AIUsageOptimizer:
         result["developer_profile"] = llm_result.get("developer_profile", {})
         result["recommendations"] = llm_result.get("recommendations", [])
         result["missing_features"] = llm_result.get("missing_features", [])
-        result["project_insights"] = llm_result.get("project_insights", [])
         result["workflow"] = llm_result.get("workflow", {})
         result["source"] = "llm"
+
+        # Validate project_insights — drop any hallucinated project names
+        real_projects = set(profile.get("project_details", {}).keys())
+        result["project_insights"] = [
+            pi for pi in llm_result.get("project_insights", [])
+            if pi.get("project") in real_projects
+        ]
 
         return result
