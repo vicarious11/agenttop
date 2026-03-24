@@ -19,6 +19,11 @@ from agenttop.web.optimizer import (
     _load_session_cache,
     _save_session_cache,
 )
+from agenttop.web.optimizer.llm_parser import (
+    extract_json_array,
+    extract_json_object,
+    validate_session_analysis,
+)
 
 
 def _make_session(**kwargs: Any) -> Session:
@@ -52,7 +57,7 @@ class TestSessionCache:
 
     def test_load_missing_file(self, tmp_path: Path) -> None:
         with patch(
-            "agenttop.web.optimizer._SESSION_CACHE_PATH",
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
             tmp_path / "nonexistent.json",
         ):
             assert _load_session_cache() == {}
@@ -61,7 +66,7 @@ class TestSessionCache:
         cache_path = tmp_path / "session_cache.json"
         cache_path.write_text("not json")
         with patch(
-            "agenttop.web.optimizer._SESSION_CACHE_PATH",
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
             cache_path,
         ):
             assert _load_session_cache() == {}
@@ -70,7 +75,7 @@ class TestSessionCache:
         cache_path = tmp_path / "session_cache.json"
         data = {"sess-1": {"intent": "debugging", "had_spiral": False}}
         with patch(
-            "agenttop.web.optimizer._SESSION_CACHE_PATH",
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
             cache_path,
         ):
             _save_session_cache(data)
@@ -80,11 +85,46 @@ class TestSessionCache:
     def test_save_creates_parent_dir(self, tmp_path: Path) -> None:
         cache_path = tmp_path / "subdir" / "session_cache.json"
         with patch(
-            "agenttop.web.optimizer._SESSION_CACHE_PATH",
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
             cache_path,
         ):
             _save_session_cache({"test": {"a": 1}})
         assert cache_path.exists()
+
+    def test_version_mismatch_discards_cache(self, tmp_path: Path) -> None:
+        """Cache with wrong version is discarded."""
+        cache_path = tmp_path / "session_cache.json"
+        cache_path.write_text(json.dumps({
+            "_version": 999,
+            "sess-1": {"intent": "debugging"},
+        }))
+        with patch(
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
+            cache_path,
+        ):
+            assert _load_session_cache() == {}
+
+    def test_version_preserved_on_save(self, tmp_path: Path) -> None:
+        """Saved cache includes version metadata."""
+        cache_path = tmp_path / "session_cache.json"
+        with patch(
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
+            cache_path,
+        ):
+            _save_session_cache({"sess-1": {"intent": "debugging"}})
+        raw = json.loads(cache_path.read_text())
+        assert "_version" in raw
+        assert isinstance(raw["_version"], int)
+
+    def test_load_non_dict_returns_empty(self, tmp_path: Path) -> None:
+        """Non-dict JSON (e.g. a list) is treated as invalid."""
+        cache_path = tmp_path / "session_cache.json"
+        cache_path.write_text(json.dumps([1, 2, 3]))
+        with patch(
+            "agenttop.web.optimizer.cache._SESSION_CACHE_PATH",
+            cache_path,
+        ):
+            assert _load_session_cache() == {}
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +203,34 @@ class TestDeterministicScore:
         result = _compute_deterministic_score(profile, None)
         assert result["breakdown"]["session_hygiene"] == 0.0
 
+    def test_confidence_full_when_many_analyses(self) -> None:
+        """Confidence is 'full' when >=25 sessions analyzed."""
+        profile: dict[str, Any] = {
+            "all_sessions": [],
+            "session_count": 30,
+            "prompt_analysis": {},
+            "cost_forensics": {},
+            "model_usage": {},
+            "feature_detection": {},
+        }
+        analyses = {f"s{i}": {"had_spiral": False, "wasted_effort": ""} for i in range(25)}
+        result = _compute_deterministic_score(profile, analyses)
+        assert result["confidence"] == "full"
+
+    def test_confidence_partial_when_few_analyses(self) -> None:
+        """Confidence is 'partial' when <25 sessions analyzed."""
+        profile: dict[str, Any] = {
+            "all_sessions": [],
+            "session_count": 10,
+            "prompt_analysis": {},
+            "cost_forensics": {},
+            "model_usage": {},
+            "feature_detection": {},
+        }
+        analyses = {f"s{i}": {"had_spiral": False, "wasted_effort": ""} for i in range(5)}
+        result = _compute_deterministic_score(profile, analyses)
+        assert result["confidence"] == "partial"
+
 
 # ---------------------------------------------------------------------------
 # Merge Results Tests
@@ -235,6 +303,36 @@ class TestMergeResults:
         assert result["score"] == 67
         assert result["developer_profile"]["title"] == "Power User"
         assert result["anti_patterns"] == []
+
+    def test_hallucinated_projects_filtered(self) -> None:
+        """project_insights with fake project names are dropped."""
+        opt = _make_optimizer()
+        profile = {
+            "anti_patterns": [],
+            "cost_forensics": {},
+            "prompt_analysis": {},
+            "context_engineering": {},
+            "session_details": [],
+            "total_tokens": 500,
+            "total_cost": 5.0,
+            "session_count": 2,
+            "deterministic_score": {"score": 50, "grades": {}, "breakdown": {}},
+            "project_details": {"real-project": {"sessions": 5}},
+        }
+        llm_result = {
+            "source": "llm",
+            "developer_profile": {},
+            "recommendations": [],
+            "missing_features": [],
+            "project_insights": [
+                {"project": "real-project", "type": "greenfield", "insight": "good"},
+                {"project": "hallucinated-project", "type": "other", "insight": "bad"},
+            ],
+            "workflow": {},
+        }
+        result = opt._merge_results(profile, llm_result)
+        assert len(result["project_insights"]) == 1
+        assert result["project_insights"][0]["project"] == "real-project"
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +428,9 @@ class TestMapPhase:
             "cached-1": {"intent": "debugging", "had_spiral": False},
         }
 
-        mock_response = json.dumps({
+        # Batch MAP returns a JSON array with session_id
+        mock_response = json.dumps([{
+            "session_id": "new-1",
             "intent": "greenfield",
             "had_spiral": False,
             "spiral_detail": "",
@@ -338,7 +438,7 @@ class TestMapPhase:
             "outcome": "resolved",
             "wasted_effort": "",
             "actionable_fix": "",
-        })
+        }])
 
         with patch(
             "agenttop.web.optimizer.get_completion",
@@ -348,12 +448,94 @@ class TestMapPhase:
         ):
             result = opt._analyze_sessions_map(sessions, existing_cache)
 
-        # Only new-1 should have been sent to LLM
+        # 1 batch call for all uncached sessions
         assert mock_llm.call_count == 1
         assert "cached-1" in result
         assert "new-1" in result
         # Original cache dict must NOT have been mutated (immutability)
         assert "new-1" not in existing_cache
+
+    def test_analyze_batch_parses_array(self) -> None:
+        """Batch MAP correctly parses a JSON array response."""
+        opt = _make_optimizer()
+        sessions = [
+            _make_session(id="s1", estimated_cost_usd=2.0, prompts=["build auth"]),
+            _make_session(id="s2", estimated_cost_usd=1.0, prompts=["fix tests"]),
+        ]
+
+        mock_response = json.dumps([
+            {
+                "session_id": "s1",
+                "intent": "greenfield",
+                "had_spiral": False,
+                "spiral_detail": "",
+                "prompt_quality": "good",
+                "outcome": "resolved",
+                "wasted_effort": "",
+                "actionable_fix": "",
+            },
+            {
+                "session_id": "s2",
+                "intent": "debugging",
+                "had_spiral": True,
+                "spiral_detail": "went in circles",
+                "prompt_quality": "vague",
+                "outcome": "pivoted",
+                "wasted_effort": "unclear what to fix",
+                "actionable_fix": "be specific",
+            },
+        ])
+
+        with patch(
+            "agenttop.web.optimizer.get_completion",
+            return_value=mock_response,
+        ):
+            result = opt._analyze_batch(sessions)
+
+        assert result is not None
+        assert len(result) == 2
+        assert result["s1"]["intent"] == "greenfield"
+        assert result["s2"]["had_spiral"] is True
+
+    def test_analyze_batch_fallback_by_index(self) -> None:
+        """Batch MAP falls back to index-based mapping when session_ids are missing."""
+        opt = _make_optimizer()
+        sessions = [
+            _make_session(id="s1", estimated_cost_usd=2.0, prompts=["test"]),
+        ]
+
+        # Response without session_id field
+        mock_response = json.dumps([{
+            "intent": "debugging",
+            "had_spiral": False,
+            "spiral_detail": "",
+            "prompt_quality": "ok",
+            "outcome": "resolved",
+            "wasted_effort": "",
+            "actionable_fix": "",
+        }])
+
+        with patch(
+            "agenttop.web.optimizer.get_completion",
+            return_value=mock_response,
+        ):
+            result = opt._analyze_batch(sessions)
+
+        assert result is not None
+        assert "s1" in result
+
+    def test_analyze_batch_returns_none_on_llm_error(self) -> None:
+        """Batch MAP returns None when LLM fails."""
+        opt = _make_optimizer()
+        sessions = [_make_session(id="s1", prompts=["test"])]
+
+        with patch(
+            "agenttop.web.optimizer.get_completion",
+            return_value="[error] timeout",
+        ):
+            result = opt._analyze_batch(sessions)
+
+        assert result is None
 
     def test_spirals_from_analyses(self) -> None:
         opt = _make_optimizer()
@@ -459,32 +641,96 @@ class TestCostForensics:
 
 
 # ---------------------------------------------------------------------------
-# _extract_json Tests
+# JSON Extraction + Validation Tests
 # ---------------------------------------------------------------------------
 
 
 class TestExtractJson:
-    """Tests for AIUsageOptimizer._extract_json edge cases."""
+    """Tests for extract_json_object edge cases."""
 
     def test_clean_json(self) -> None:
-        result = AIUsageOptimizer._extract_json('{"key": "value"}')
+        result = extract_json_object('{"key": "value"}')
         assert result == {"key": "value"}
 
     def test_markdown_fences(self) -> None:
         raw = '```json\n{"key": "value"}\n```'
-        result = AIUsageOptimizer._extract_json(raw)
+        result = extract_json_object(raw)
         assert result == {"key": "value"}
 
     def test_think_tags(self) -> None:
         raw = '<think>Let me analyze...</think>\n{"key": "value"}'
-        result = AIUsageOptimizer._extract_json(raw)
+        result = extract_json_object(raw)
         assert result == {"key": "value"}
 
     def test_brace_extraction_fallback(self) -> None:
         raw = 'Here is the result: {"key": "value"} end of response'
-        result = AIUsageOptimizer._extract_json(raw)
+        result = extract_json_object(raw)
         assert result == {"key": "value"}
 
     def test_no_json_raises(self) -> None:
         with pytest.raises(json.JSONDecodeError):
-            AIUsageOptimizer._extract_json("no json here")
+            extract_json_object("no json here")
+
+
+class TestExtractJsonArray:
+    """Tests for extract_json_array."""
+
+    def test_clean_array(self) -> None:
+        result = extract_json_array('[{"a": 1}, {"b": 2}]')
+        assert len(result) == 2
+
+    def test_markdown_fences(self) -> None:
+        raw = '```json\n[{"a": 1}]\n```'
+        result = extract_json_array(raw)
+        assert len(result) == 1
+
+    def test_no_array_raises(self) -> None:
+        with pytest.raises(json.JSONDecodeError):
+            extract_json_array("no json here")
+
+
+class TestValidateSessionAnalysis:
+    """Tests for validate_session_analysis schema validation."""
+
+    def test_valid_analysis(self) -> None:
+        item = {
+            "intent": "debugging",
+            "had_spiral": True,
+            "spiral_detail": "went in circles",
+            "prompt_quality": "vague",
+            "outcome": "resolved",
+            "wasted_effort": "too many corrections",
+            "actionable_fix": "be specific",
+        }
+        result = validate_session_analysis(item)
+        assert result is not None
+        assert result["intent"] == "debugging"
+        assert result["had_spiral"] is True
+
+    def test_unknown_intent_defaults_to_other(self) -> None:
+        item = {
+            "intent": "banana",
+            "had_spiral": False,
+            "outcome": "resolved",
+        }
+        result = validate_session_analysis(item)
+        assert result is not None
+        assert result["intent"] == "other"
+
+    def test_unknown_outcome_defaults_to_resolved(self) -> None:
+        item = {"intent": "debugging", "outcome": "exploded"}
+        result = validate_session_analysis(item)
+        assert result is not None
+        assert result["outcome"] == "resolved"
+
+    def test_missing_fields_get_defaults(self) -> None:
+        result = validate_session_analysis({"intent": "debugging"})
+        assert result is not None
+        assert result["had_spiral"] is False
+        assert result["spiral_detail"] == ""
+        assert result["wasted_effort"] == ""
+
+    def test_non_dict_returns_none(self) -> None:
+        assert validate_session_analysis("not a dict") is None
+        assert validate_session_analysis(42) is None
+        assert validate_session_analysis(None) is None
