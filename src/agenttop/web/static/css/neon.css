@@ -2058,3 +2058,387 @@ html, body {
 @media (max-width: 700px) {
   .tool-bar { display: none; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   WORKFLOW INTELLIGENCE PANEL
+   ══════════════════════════════════════════════════════════ */
+
+#workflow-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 8px;
+}
+
+.workflow-section {
+  background: var(--bg-card);
+  border-radius: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-dim);
+}
+
+.workflow-section .section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.workflow-section .section-icon {
+  color: var(--neon-cyan);
+  font-size: 11px;
+}
+
+.workflow-section .section-title {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+/* ── Efficiency Ring ── */
+
+.efficiency-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.efficiency-ring-container {
+  position: relative;
+  width: 90px;
+  height: 90px;
+}
+
+.efficiency-ring {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring-bg {
+  fill: none;
+  stroke: var(--border-dim);
+  stroke-width: 6;
+}
+
+.ring-progress {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px currentColor);
+  transition: stroke-dashoffset 1s ease-out;
+}
+
+.efficiency-score {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.score-unit {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.efficiency-label {
+  margin-top: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Tool Flow Timeline ── */
+
+.flow-section {
+  grid-column: span 2;
+}
+
+.flow-streams {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flow-stream {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  background: rgba(0, 255, 245, 0.02);
+  border-radius: 4px;
+  opacity: 0;
+  transform: translateX(-10px);
+  animation: flow-slide-in 0.4s ease-out forwards;
+}
+
+@keyframes flow-slide-in {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.flow-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.flow-tool {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(var(--tool-color), 0.1);
+  color: var(--tool-color);
+  border: 1px solid color-mix(in srgb, var(--tool-color) 40%, transparent);
+}
+
+.flow-arrow {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.flow-bar-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-bar {
+  height: 4px;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-orange));
+  border-radius: 2px;
+  position: relative;
+  transition: width 0.5s ease-out;
+}
+
+.flow-count {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.flow-efficiency {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  min-width: 30px;
+}
+
+.flow-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.flow-empty .empty-icon {
+  font-size: 20px;
+  opacity: 0.5;
+}
+
+/* ── Pattern Alerts ── */
+
+.patterns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pattern-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  border-left: 2px solid transparent;
+}
+
+.pattern-warning {
+  border-left-color: var(--neon-red);
+  background: rgba(255, 68, 68, 0.05);
+}
+
+.pattern-good {
+  border-left-color: var(--neon-green);
+  background: rgba(0, 255, 136, 0.03);
+}
+
+.pattern-icon {
+  font-size: 12px;
+}
+
+.pattern-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pattern-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pattern-freq {
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+.pattern-efficiency {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.patterns-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* ── Recommendation Card ── */
+
+.rec-card {
+  padding: 10px;
+  background: linear-gradient(135deg, rgba(255, 107, 0, 0.08), rgba(0, 255, 245, 0.04));
+  border-radius: 6px;
+  border: 1px solid rgba(255, 107, 0, 0.2);
+}
+
+.rec-task {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.rec-tool {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.rec-gain {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--neon-green);
+  margin-bottom: 6px;
+}
+
+.rec-rationale {
+  font-size: 9px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.rec-issue {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--neon-orange);
+  margin-bottom: 6px;
+}
+
+.rec-suggestion {
+  font-size: 9px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.rec-benefit {
+  margin-top: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--neon-green);
+}
+
+/* ── Switching Cost Matrix ── */
+
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.matrix-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-card);
+  border-radius: 4px;
+  font-size: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.matrix-cell:hover {
+  background: rgba(0, 255, 245, 0.05);
+}
+
+.matrix-from, .matrix-to {
+  color: var(--text-secondary);
+}
+
+.matrix-arrow {
+  color: var(--text-dim);
+  margin: 0 2px;
+}
+
+.matrix-loss {
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  width: 100%;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.matrix-freq {
+  font-size: 7px;
+  color: var(--text-dim);
+  width: 100%;
+  text-align: center;
+}
+
+/* ── Workflow Panel Responsive ── */
+
+@media (max-width: 600px) {
+  .workflow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-section {
+    grid-column: span 1;
+  }
+}
