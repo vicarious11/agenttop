@@ -50,8 +50,9 @@ class SessionCorrelator:
             current_session = sorted_sessions[i]
             prev_session = current_chain_sessions[-1]
 
-            # Calculate time gap
-            time_gap = (current_session.start_time - prev_session.end_time).total_seconds() / 60
+            # Calculate time gap (use start_time as fallback if end_time is None)
+            prev_end = prev_session.end_time or prev_session.start_time
+            time_gap = (current_session.start_time - prev_end).total_seconds() / 60
 
             if time_gap <= max_gap_minutes:
                 # Add to current chain
@@ -115,8 +116,10 @@ class SessionCorrelator:
                 current_session = proj_sessions[i]
                 prev_session = current_chain[-1]
 
+                # Use start_time as fallback if end_time is None
+                prev_end = prev_session.end_time or prev_session.start_time
                 time_gap_hours = (
-                    (current_session.start_time - prev_session.end_time).total_seconds() / 3600
+                    (current_session.start_time - prev_end).total_seconds() / 3600
                 )
 
                 if time_gap_hours <= max_gap_hours:
@@ -162,6 +165,8 @@ class SessionCorrelator:
 
                 # Only create transition if tools are different
                 if prev_session.tool != curr_session.tool:
+                    # Use start_time as fallback if end_time is None
+                    prev_end = prev_session.end_time or prev_session.start_time
                     transition = ToolTransition(
                         id=str(uuid.uuid4()),
                         from_tool=prev_session.tool.value if hasattr(prev_session.tool, "value") else str(prev_session.tool),
@@ -169,7 +174,7 @@ class SessionCorrelator:
                         from_session_id=prev_session.id,
                         to_session_id=curr_session.id,
                         time_gap_seconds=(
-                            (curr_session.start_time - prev_session.end_time).total_seconds()
+                            (curr_session.start_time - prev_end).total_seconds()
                         ),
                         project_match=(prev_session.project == curr_session.project),
                         context_preservation_score=self._estimate_context_preservation(prev_session, curr_session),
@@ -198,7 +203,7 @@ class SessionCorrelator:
             session_ids=[s.id for s in sessions],
             tools=tools,
             start_time=sessions[0].start_time.timestamp(),
-            end_time=sessions[-1].end_time.timestamp(),
+            end_time=(sessions[-1].end_time or sessions[-1].start_time).timestamp(),
             project=project_name or sessions[0].project,
             total_tokens=total_tokens,
             total_cost=total_cost,

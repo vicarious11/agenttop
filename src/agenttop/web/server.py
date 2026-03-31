@@ -192,7 +192,7 @@ def api_workflow_chains(days: int = 7, gap_minutes: int = 30) -> JSONResponse:
         return JSONResponse({"chains": [], "total": 0})
 
     correlator = SessionCorrelator()
-    chains = correlator.correlate_by_time(sessions, gap_minutes=gap_minutes)
+    chains = correlator.correlate_by_time(sessions, max_gap_minutes=gap_minutes)
 
     # Convert to JSON-serializable format
     chains_data = []
@@ -251,10 +251,14 @@ def api_workflow_patterns(days: int = 7) -> JSONResponse:
             "typical_duration_minutes": round(pattern.typical_duration_minutes, 1),
         })
 
+    # Convert metrics dataclass to dict using dataclasses.asdict
+    import dataclasses as _dc
+    metrics_data = _dc.asdict(analysis.get("metrics")) if analysis.get("metrics") else None
+
     return JSONResponse({
         "patterns": patterns_data,
         "total": len(patterns_data),
-        "metrics": analysis.get("metrics").model_dump() if analysis.get("metrics") else None,
+        "metrics": metrics_data,
     })
 
 
@@ -366,13 +370,9 @@ def api_workflow_tool_combinations(days: int = 7) -> JSONResponse:
     transitions = correlator.detect_tool_transitions(chains, sessions)
 
     analyzer = WorkflowAnalyzer()
-    # First calculate efficiency scores
+    # Calculate efficiency scores for each chain
     for chain in chains:
         chain.efficiency_score = analyzer._calculate_chain_efficiency(chain, transitions)
-
-    # First calculate efficiency scores
-    for chain in chains:
-        chain.efficiency_score = self.calculate_efficiency(chain, transitions)
 
     combinations = analyzer.analyze_tool_combinations(chains)
 
