@@ -1,11 +1,9 @@
-/* agenttop — Workflow Intelligence UI */
+/* agenttop — Workflow Intelligence UI (Redesigned) */
 
 const Workflow = {
   _data: null,
-  _loading: false,
   _refreshInterval: null,
 
-  // Tool colors matching existing theme
   toolColors: {
     claude_code: '#ff6b00',
     cursor: '#4488ff',
@@ -17,23 +15,12 @@ const Workflow = {
     generic: '#888888',
   },
 
-  // Pattern severity colors
-  patternColors: {
-    tool_hopping: '#ff4444',
-    quick_iteration: '#ffee00',
-    iterative_refinement: '#00ff88',
-    parallel_exploration: '#4488ff',
-    single_tool_deep_dive: '#00fff5',
-  },
-
   init() {
     Workflow._fetch();
-    // Refresh every 60 seconds
     Workflow._refreshInterval = setInterval(Workflow._fetch, 60000);
   },
 
   async _fetch() {
-    Workflow._loading = true;
     try {
       const [patterns, recommendations, switchingCosts, toolCombinations] = await Promise.all([
         fetch('/api/workflow/patterns?days=7').then(r => r.json()),
@@ -46,143 +33,185 @@ const Workflow = {
       Workflow._render();
     } catch (e) {
       console.error('Workflow fetch failed:', e);
-    } finally {
-      Workflow._loading = false;
+      Workflow._renderError();
     }
   },
 
   _render() {
-    if (!Workflow._data) return;
-
     const container = document.getElementById('workflow-content');
     if (!container) return;
 
+    const metrics = Workflow._data?.patterns?.metrics || {};
+    const efficiency = Math.round((metrics.avg_efficiency_score || 0.5) * 100);
+    const totalChains = metrics.total_chains || 0;
+    const toolDist = metrics.tool_usage_distribution || {};
+
     container.innerHTML = `
-      <div class="workflow-grid">
-        ${Workflow._renderEfficiencyRing()}
-        ${Workflow._renderToolFlowTimeline()}
-        ${Workflow._renderPatternAlerts()}
-        ${Workflow._renderRecommendations()}
-        ${Workflow._renderSwitchingCostMatrix()}
+      <div class="wf-container">
+        <!-- Top: Key Insight Card -->
+        ${Workflow._renderInsightCard()}
+
+        <!-- Middle: Quick Stats Row -->
+        <div class="wf-stats-row">
+          <div class="wf-stat">
+            <div class="wf-stat-value" style="color: ${Workflow._getEfficiencyColor(efficiency)}">${efficiency}%</div>
+            <div class="wf-stat-label">Efficiency</div>
+          </div>
+          <div class="wf-stat">
+            <div class="wf-stat-value">${totalChains}</div>
+            <div class="wf-stat-label">Sessions</div>
+          </div>
+          <div class="wf-stat">
+            <div class="wf-stat-value">${Object.keys(toolDist).length}</div>
+            <div class="wf-stat-label">Tools Used</div>
+          </div>
+        </div>
+
+        <!-- Tool Usage Bars -->
+        ${Workflow._renderToolUsage(toolDist)}
+
+        <!-- Patterns (if any interesting ones) -->
+        ${Workflow._renderPatternsSection()}
       </div>
     `;
-
-    // Animate elements after render
-    setTimeout(() => {
-      Workflow._animateFlows();
-      Workflow._animateRing();
-    }, 100);
   },
 
-  // ══════════════════════════════════════════════════════════
-  // EFFICIENCY RING
-  // ══════════════════════════════════════════════════════════
-
-  _renderEfficiencyRing() {
+  _renderInsightCard() {
+    const recommendations = Workflow._data?.recommendations?.recommendations || [];
     const patterns = Workflow._data?.patterns?.patterns || [];
-    const avgEfficiency = patterns.length > 0
-      ? patterns.reduce((sum, p) => sum + p.avg_efficiency, 0) / patterns.length
-      : 0.5;
 
-    const score = Math.round(avgEfficiency * 100);
-    const circumference = 2 * Math.PI * 40;
-    const offset = circumference - (score / 100) * circumference;
+    // Find the most actionable insight
+    let insight = null;
+    let insightType = 'tip';
 
-    const color = score >= 70 ? 'var(--neon-green)' : score >= 40 ? 'var(--neon-yellow)' : 'var(--neon-red)';
+    // Check for tool diversity issues
+    const toolRec = recommendations.find(r => r.type === 'tool_diversity');
+    if (toolRec) {
+      insight = {
+        title: '💡 Tip',
+        message: toolRec.recommendation,
+        detail: toolRec.potential_benefit || ''
+      };
+      insightType = 'warning';
+    }
+
+    // Check for bad patterns
+    const badPattern = patterns.find(p => p.name === 'tool_hopping');
+    if (badPattern) {
+      insight = {
+        title: '⚠️ Tool Hopping Detected',
+        message: 'You switched between tools frequently. This can fragment context.',
+        detail: 'Try sticking with one tool per task for better focus.'
+      };
+      insightType = 'warning';
+    }
+
+    // If everything is good, show a positive message
+    if (!insight) {
+      const efficiency = Math.round(((Workflow._data?.patterns?.metrics?.avg_efficiency_score || 0.5) * 100));
+      if (efficiency >= 70) {
+        insight = {
+          title: '✅ Great Workflow',
+          message: 'Your tool usage is efficient. Keep it up!',
+          detail: ''
+        };
+        insightType = 'success';
+      } else {
+        insight = {
+          title: '💡 Recommendation',
+          message: 'For debugging tasks, try using Claude Code for +35% efficiency.',
+          detail: 'It excels at deep context understanding and multi-file analysis.'
+        };
+        insightType = 'tip';
+      }
+    }
 
     return `
-      <div class="workflow-section efficiency-section">
-        <div class="section-header">
-          <span class="section-icon">◎</span>
-          <span class="section-title">Workflow Efficiency</span>
-        </div>
-        <div class="efficiency-ring-container">
-          <svg class="efficiency-ring" viewBox="0 0 100 100">
-            <circle class="ring-bg" cx="50" cy="50" r="40" />
-            <circle class="ring-progress" cx="50" cy="50" r="40"
-              stroke="${color}"
-              stroke-dasharray="${circumference}"
-              stroke-dashoffset="${offset}"
-              style="--target-offset: ${offset}" />
-          </svg>
-          <div class="efficiency-score" style="color: ${color}">${score}<span class="score-unit">%</span></div>
-        </div>
-        <div class="efficiency-label">
-          ${score >= 70 ? '✓ Optimal' : score >= 40 ? '⚡ Good' : '⚠ Needs Improvement'}
-        </div>
+      <div class="wf-insight-card wf-insight-${insightType}">
+        <div class="wf-insight-title">${insight.title}</div>
+        <div class="wf-insight-message">${insight.message}</div>
+        ${insight.detail ? `<div class="wf-insight-detail">${insight.detail}</div>` : ''}
       </div>
     `;
   },
 
-  _animateRing() {
-    const ring = document.querySelector('.ring-progress');
-    if (ring) {
-      ring.style.transition = 'stroke-dashoffset 1s ease-out';
-    }
-  },
+  _renderToolUsage(toolDist) {
+    const entries = Object.entries(toolDist).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return '';
 
-  // ══════════════════════════════════════════════════════════
-  // TOOL FLOW TIMELINE
-  // ══════════════════════════════════════════════════════════
+    const total = entries.reduce((sum, [_, count]) => sum + count, 0);
 
-  _renderToolFlowTimeline() {
-    const combinations = Workflow._data?.toolCombinations?.combinations || {};
-    const entries = Object.entries(combinations).slice(0, 5);
-
-    if (entries.length === 0) {
+    const bars = entries.map(([tool, count]) => {
+      const pct = Math.round((count / total) * 100);
+      const color = Workflow.toolColors[tool] || '#888888';
       return `
-        <div class="workflow-section flow-section">
-          <div class="section-header">
-            <span class="section-icon">≋</span>
-            <span class="section-title">Tool Flow</span>
+        <div class="wf-tool-bar">
+          <div class="wf-tool-info">
+            <span class="wf-tool-dot" style="background: ${color}"></span>
+            <span class="wf-tool-name">${Workflow._shortToolName(tool)}</span>
           </div>
-          <div class="flow-empty">
-            <span class="empty-icon">◇</span>
-            <span>Use multiple tools to see flow patterns</span>
+          <div class="wf-bar-track">
+            <div class="wf-bar-fill" style="width: ${pct}%; background: ${color}"></div>
           </div>
+          <span class="wf-tool-pct">${pct}%</span>
         </div>
       `;
-    }
+    }).join('');
 
-    const flows = entries.map(([combo, data], i) => {
-      const tools = combo.split(' → ');
-      const efficiency = Math.round(data.avg_efficiency * 100);
-      const width = Math.max(20, Math.min(100, data.count * 10));
+    return `<div class="wf-tool-usage">${bars}</div>`;
+  },
+
+  _renderPatternsSection() {
+    const patterns = Workflow._data?.patterns?.patterns || [];
+    if (patterns.length === 0) return '';
+
+    // Only show interesting patterns (not just single_tool_deep_dive)
+    const interestingPatterns = patterns.filter(p =>
+      p.name !== 'single_tool_deep_dive' ||
+      patterns.length === 1
+    );
+
+    if (interestingPatterns.length === 0) return '';
+
+    const items = interestingPatterns.slice(0, 2).map(p => {
+      const isGood = p.name === 'iterative_refinement' || p.name === 'parallel_exploration';
+      const icon = isGood ? '✓' : '⚠';
+      const color = isGood ? 'var(--neon-green)' : 'var(--neon-orange)';
 
       return `
-        <div class="flow-stream" style="--stream-index: ${i}">
-          <div class="flow-tools">
-            ${tools.map(t => `
-              <span class="flow-tool" style="--tool-color: ${Workflow.toolColors[t] || '#888'}">
-                ${Workflow._shortToolName(t)}
-              </span>
-            `).join('<span class="flow-arrow">→</span>')}
-          </div>
-          <div class="flow-bar-container">
-            <div class="flow-bar" style="width: ${width}%">
-              <span class="flow-count">${data.count}x</span>
-            </div>
-            <span class="flow-efficiency">${efficiency}%</span>
-          </div>
+        <div class="wf-pattern-item">
+          <span class="wf-pattern-icon" style="color: ${color}">${icon}</span>
+          <span class="wf-pattern-text">${Workflow._formatPatternName(p.name)}</span>
+          <span class="wf-pattern-count">${p.frequency}×</span>
         </div>
       `;
     }).join('');
 
     return `
-      <div class="workflow-section flow-section">
-        <div class="section-header">
-          <span class="section-icon">≋</span>
-          <span class="section-title">Tool Combinations</span>
-        </div>
-        <div class="flow-streams">
-          ${flows}
+      <div class="wf-patterns-section">
+        <div class="wf-section-label">Detected Patterns</div>
+        <div class="wf-patterns-list">${items}</div>
+      </div>
+    `;
+  },
+
+  _renderError() {
+    const container = document.getElementById('workflow-content');
+    if (!container) return;
+
+    container.innerHTML = `
+      <div class="wf-container">
+        <div class="wf-insight-card wf-insight-tip">
+          <div class="wf-insight-title">💡 Getting Started</div>
+          <div class="wf-insight-message">Use multiple AI tools to see workflow insights here.</div>
+          <div class="wf-insight-detail">We'll analyze your patterns and suggest improvements.</div>
         </div>
       </div>
     `;
   },
 
   _shortToolName(name) {
-    const shortNames = {
+    const names = {
       claude_code: 'Claude',
       cursor: 'Cursor',
       kiro: 'Kiro',
@@ -191,161 +220,20 @@ const Workflow = {
       aider: 'Aider',
       continue: 'Continue',
     };
-    return shortNames[name] || name;
-  },
-
-  _animateFlows() {
-    const streams = document.querySelectorAll('.flow-stream');
-    streams.forEach((stream, i) => {
-      stream.style.animationDelay = `${i * 0.1}s`;
-      stream.classList.add('animate-in');
-    });
-  },
-
-  // ══════════════════════════════════════════════════════════
-  // PATTERN ALERTS
-  // ══════════════════════════════════════════════════════════
-
-  _renderPatternAlerts() {
-    const patterns = Workflow._data?.patterns?.patterns || [];
-
-    if (patterns.length === 0) {
-      return `
-        <div class="workflow-section patterns-section">
-          <div class="section-header">
-            <span class="section-icon">◈</span>
-            <span class="section-title">Patterns</span>
-          </div>
-          <div class="patterns-empty">No patterns detected yet</div>
-        </div>
-      `;
-    }
-
-    const patternItems = patterns.map(p => {
-      const isBad = p.name === 'tool_hopping' || p.name === 'quick_iteration';
-      const color = Workflow.patternColors[p.name] || '#888';
-      const icon = isBad ? '⚠' : '✓';
-
-      return `
-        <div class="pattern-item ${isBad ? 'pattern-warning' : 'pattern-good'}">
-          <span class="pattern-icon" style="color: ${color}">${icon}</span>
-          <div class="pattern-info">
-            <span class="pattern-name">${Workflow._formatPatternName(p.name)}</span>
-            <span class="pattern-freq">${p.frequency}× detected</span>
-          </div>
-          <div class="pattern-efficiency" style="color: ${color}">
-            ${Math.round(p.avg_efficiency * 100)}%
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <div class="workflow-section patterns-section">
-        <div class="section-header">
-          <span class="section-icon">◈</span>
-          <span class="section-title">Detected Patterns</span>
-        </div>
-        <div class="patterns-list">
-          ${patternItems}
-        </div>
-      </div>
-    `;
+    return names[name] || name;
   },
 
   _formatPatternName(name) {
-    return name
-      .split('_')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
+    return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   },
 
-  // ══════════════════════════════════════════════════════════
-  // RECOMMENDATIONS
-  // ══════════════════════════════════════════════════════════
-
-  _renderRecommendations() {
-    const recommendations = Workflow._data?.recommendations?.recommendations || [];
-
-    // Get the most relevant recommendation
-    const topRec = recommendations.find(r => r.type === 'tool_diversity') || recommendations[0];
-
-    if (!topRec) {
-      // Show task-based recommendation
-      return `
-        <div class="workflow-section rec-section">
-          <div class="section-header">
-            <span class="section-icon">💡</span>
-            <span class="section-title">Recommendation</span>
-          </div>
-          <div class="rec-card">
-            <div class="rec-task">For Debugging</div>
-            <div class="rec-tool" style="color: var(--neon-orange)">Use Claude Code</div>
-            <div class="rec-gain">+35% efficiency</div>
-            <div class="rec-rationale">Deep context understanding and multi-file analysis</div>
-          </div>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="workflow-section rec-section">
-        <div class="section-header">
-          <span class="section-icon">💡</span>
-          <span class="section-title">Insight</span>
-        </div>
-        <div class="rec-card">
-          <div class="rec-issue">${topRec.issue || 'Workflow Improvement'}</div>
-          <div class="rec-suggestion">${topRec.recommendation}</div>
-          ${topRec.potential_benefit ? `<div class="rec-benefit">${topRec.potential_benefit}</div>` : ''}
-        </div>
-      </div>
-    `;
-  },
-
-  // ══════════════════════════════════════════════════════════
-  // SWITCHING COST MATRIX
-  // ══════════════════════════════════════════════════════════
-
-  _renderSwitchingCostMatrix() {
-    const costs = Workflow._data?.switchingCosts?.switching_costs || {};
-    const entries = Object.entries(costs).slice(0, 6);
-
-    if (entries.length === 0) {
-      return '';
-    }
-
-    const cells = entries.map(([transition, data]) => {
-      const [from, to] = transition.split(' → ');
-      const loss = Math.round((data.avg_context_preservation || 0.5) * 100);
-      const lossColor = loss >= 70 ? 'var(--neon-green)' : loss >= 40 ? 'var(--neon-yellow)' : 'var(--neon-red)';
-
-      return `
-        <div class="matrix-cell" title="${data.mitigation_strategy || ''}">
-          <div class="matrix-from">${Workflow._shortToolName(from)}</div>
-          <div class="matrix-arrow">→</div>
-          <div class="matrix-to">${Workflow._shortToolName(to)}</div>
-          <div class="matrix-loss" style="color: ${lossColor}">${loss}%</div>
-          <div class="matrix-freq">${data.frequency}×</div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <div class="workflow-section matrix-section">
-        <div class="section-header">
-          <span class="section-icon">⬡</span>
-          <span class="section-title">Context Preservation</span>
-        </div>
-        <div class="matrix-grid">
-          ${cells}
-        </div>
-      </div>
-    `;
+  _getEfficiencyColor(score) {
+    if (score >= 70) return 'var(--neon-green)';
+    if (score >= 40) return 'var(--neon-yellow)';
+    return 'var(--neon-red)';
   },
 };
 
-// Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
   Workflow.init();
 });
