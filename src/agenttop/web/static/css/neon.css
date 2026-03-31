@@ -2286,6 +2286,177 @@ html, body {
   color: var(--text-dim);
 }
 
+/* ── Insights Sections ── */
+
+.wf-insights-section {
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: 8px;
+  border: 1px solid var(--border-dim);
+}
+
+.wf-section-title {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--neon-cyan);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Time Insights Grid ── */
+
+.wf-time-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.wf-time-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  text-align: center;
+}
+
+.wf-time-icon {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.wf-time-label {
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.wf-time-value {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Cost Efficiency Grid ── */
+
+.wf-cost-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.wf-cost-card {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  position: relative;
+}
+
+.wf-cost-best {
+  border-color: rgba(0, 255, 136, 0.3);
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.05), var(--bg-secondary));
+}
+
+.wf-cost-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.wf-cost-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.wf-cost-name {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.wf-cost-badge {
+  margin-left: auto;
+  font-size: 7px;
+  font-weight: 700;
+  padding: 2px 4px;
+  background: rgba(0, 255, 136, 0.2);
+  color: var(--neon-green);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.wf-cost-value {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Trends Grid ── */
+
+.wf-trends-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.wf-trend-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+}
+
+.wf-trend-label {
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.wf-trend-value {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wf-trend-up {
+  color: var(--neon-green);
+}
+
+.wf-trend-down {
+  color: var(--neon-red);
+}
+
+.wf-trend-flat {
+  color: var(--text-secondary);
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 600px) {
@@ -2308,5 +2479,27 @@ html, body {
 
   .wf-tool-name {
     font-size: 9px;
+  }
+
+  .wf-time-grid,
+  .wf-cost-grid,
+  .wf-trends-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .wf-time-card,
+  .wf-cost-card,
+  .wf-trend-item {
+    padding: 8px 6px;
+  }
+
+  .wf-time-icon,
+  .wf-cost-value {
+    font-size: 9px;
+  }
+
+  .wf-trend-value {
+    font-size: 11px;
   }
 }

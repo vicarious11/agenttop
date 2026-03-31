@@ -214,18 +214,26 @@ def api_workflow_chains(days: int = 7, gap_minutes: int = 30) -> JSONResponse:
 
 
 @app.get("/api/workflow/patterns")
-def api_workflow_patterns(days: int = 7) -> JSONResponse:
-    """Detect workflow patterns from recent sessions."""
+def api_workflow_patterns(days: int = 7, offset: int = 0) -> JSONResponse:
+    """Detect workflow patterns from recent sessions.
+
+    Args:
+        days: Number of days to look back
+        offset: Day offset (0 for current period, 7 for previous week, etc.)
+    """
     _init()
     from datetime import datetime, timedelta
 
-    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+    # Calculate cutoff with offset for historical comparison
+    end_date = datetime.now() - timedelta(days=offset)
+    cutoff = end_date - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
     sessions = []
     for _, collector in _collectors:
         if not collector.is_available():
             continue
         for s in collector.collect_sessions():
-            if s.start_time >= cutoff:
+            # Filter sessions within the time range [cutoff, end_date]
+            if s.start_time >= cutoff and s.start_time < end_date:
                 sessions.append(s)
 
     if not sessions:
