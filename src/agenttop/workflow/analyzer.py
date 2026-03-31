@@ -277,11 +277,8 @@ class WorkflowAnalyzer:
         transitions: list[ToolTransition],
     ) -> WorkflowMetrics:
         """Calculate aggregate workflow metrics."""
-        # Tool usage distribution
-        tool_dist = self._correlator.get_tool_usage_distribution([])  # Will be populated from sessions
-        for chain in chains:
-            for tool in chain.tools:
-                tool_dist[tool] = tool_dist.get(tool, 0) + 1
+        # Tool usage distribution from chains (convert Counter to dict for JSON serialization)
+        tool_dist: dict[str, int] = dict(Counter(tool for chain in chains for tool in chain.tools))
 
         # Transition matrix
         transition_matrix = self._correlator.get_transition_matrix(transitions)
