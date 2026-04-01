@@ -24,6 +24,14 @@ from agenttop.collectors.kiro import KiroCollector
 from agenttop.config import Config, load_config
 from agenttop.formatting import check_budget
 from agenttop.web.graph_builder import GraphBuilder
+from agenttop.workflow import (
+    SessionCorrelator,
+    WorkflowAnalyzer,
+    WorkflowPatternDetector,
+    get_all_tool_names,
+    get_recommendation_for_task,
+    get_switching_cost,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -173,6 +181,226 @@ def api_budget(days: int = 0) -> JSONResponse:
         "ratio": 0.0,
         "remaining": 0.0,
         "status": "ok",
+    })
+
+
+# --- Workflow Intelligence API ---
+
+
+@app.get("/api/workflow/chains")
+def api_workflow_chains(days: int = 7, gap_minutes: int = 30) -> JSONResponse:
+    """Get workflow chains - correlated sessions across tools."""
+    _init()
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+    sessions = []
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            if s.start_time >= cutoff:
+                sessions.append(s)
+
+    if not sessions:
+        return JSONResponse({"chains": [], "total": 0})
+
+    correlator = SessionCorrelator()
+    chains = correlator.correlate_by_time(sessions, max_gap_minutes=gap_minutes)
+
+    # Convert to JSON-serializable format
+    chains_data = []
+    for chain in chains:
+        chains_data.append({
+            "id": chain.id,
+            "session_ids": chain.session_ids,
+            "tools": chain.tools,
+            "start_time": chain.start_time,
+            "end_time": chain.end_time,
+            "project": chain.project,
+            "total_tokens": chain.total_tokens,
+            "total_cost": chain.total_cost,
+            "efficiency_score": chain.efficiency_score,
+            "pattern_type": chain.pattern_type,
+        })
+
+    return JSONResponse({"chains": chains_data, "total": len(chains_data)})
+
+
+@app.get("/api/workflow/patterns")
+def api_workflow_patterns(days: int = 7, offset: int = 0) -> JSONResponse:
+    """Detect workflow patterns from recent sessions.
+
+    Args:
+        days: Number of days to look back
+        offset: Day offset (0 for current period, 7 for previous week, etc.)
+    """
+    _init()
+    from datetime import datetime, timedelta
+
+    # Calculate cutoff with offset for historical comparison
+    end_date = datetime.now() - timedelta(days=offset)
+    cutoff = end_date - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+    sessions = []
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            # Filter sessions within the time range [cutoff, end_date]
+            if s.start_time >= cutoff and s.start_time < end_date:
+                sessions.append(s)
+
+    if not sessions:
+        return JSONResponse({"patterns": [], "total": 0})
+
+    correlator = SessionCorrelator()
+    chains = correlator.correlate_by_time(sessions)
+    transitions = correlator.detect_tool_transitions(chains, sessions)
+
+    analyzer = WorkflowAnalyzer()
+    analysis = analyzer.analyze_chains(chains, transitions)
+
+    patterns_data = []
+    for pattern in analysis.get("patterns", []):
+        patterns_data.append({
+            "name": pattern.name,
+            "description": pattern.description,
+            "tool_sequence": pattern.tool_sequence,
+            "frequency": pattern.frequency,
+            "avg_efficiency": round(pattern.avg_efficiency, 2),
+            "avg_tokens": pattern.avg_tokens,
+            "avg_cost": round(pattern.avg_cost, 2),
+            "typical_duration_minutes": round(pattern.typical_duration_minutes, 1),
+        })
+
+    # Convert metrics dataclass to dict using dataclasses.asdict
+    import dataclasses as _dc
+    metrics_data = _dc.asdict(analysis.get("metrics")) if analysis.get("metrics") else None
+
+    return JSONResponse({
+        "patterns": patterns_data,
+        "total": len(patterns_data),
+        "metrics": metrics_data,
+    })
+
+
+@app.get("/api/workflow/recommendations")
+def api_workflow_recommendations(days: int = 7, task_type: str | None = None) -> JSONResponse:
+    """Get workflow recommendations based on usage patterns."""
+    _init()
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+    sessions = []
+    available_tools = set()
+    for name, collector in _collectors:
+        if not collector.is_available():
+            continue
+        available_tools.add(name.lower().replace(" ", "_"))
+        for s in collector.collect_sessions():
+            if s.start_time >= cutoff:
+                sessions.append(s)
+
+    if not sessions:
+        return JSONResponse({"recommendations": [], "available_tools": list(available_tools)})
+
+    correlator = SessionCorrelator()
+    chains = correlator.correlate_by_time(sessions)
+    transitions = correlator.detect_tool_transitions(chains, sessions)
+
+    analyzer = WorkflowAnalyzer()
+    analysis = analyzer.analyze_chains(chains, transitions)
+
+    recommendations = analysis.get("recommendations", [])
+
+    # If task_type specified, add specific recommendation
+    if task_type:
+        task_rec = analyzer.get_task_based_recommendation(task_type, list(available_tools))
+        if task_rec:
+            recommendations.insert(0, {
+                "type": "task_specific",
+                "task_type": task_type,
+                "primary_tool": task_rec.primary_tool,
+                "secondary_tools": task_rec.secondary_tools,
+                "avoid_tools": task_rec.avoid_tools,
+                "rationale": task_rec.rationale,
+                "estimated_efficiency_gain": task_rec.estimated_efficiency_gain,
+            })
+
+    return JSONResponse({
+        "recommendations": recommendations,
+        "available_tools": list(available_tools),
+    })
+
+
+@app.get("/api/workflow/switching-costs")
+def api_workflow_switching_costs(days: int = 7) -> JSONResponse:
+    """Analyze tool switching costs and context loss."""
+    _init()
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+    sessions = []
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            if s.start_time >= cutoff:
+                sessions.append(s)
+
+    if not sessions:
+        return JSONResponse({
+            "switching_costs": {},
+            "transition_analysis": {},
+            "known_tools": get_all_tool_names(),
+        })
+
+    correlator = SessionCorrelator()
+    chains = correlator.correlate_by_time(sessions)
+    transitions = correlator.detect_tool_transitions(chains, sessions)
+
+    analyzer = WorkflowAnalyzer()
+    switching_analysis = analyzer.measure_switching_costs(transitions)
+
+    return JSONResponse({
+        "switching_costs": switching_analysis,
+        "transition_count": len(transitions),
+        "known_tools": get_all_tool_names(),
+    })
+
+
+@app.get("/api/workflow/tool-combinations")
+def api_workflow_tool_combinations(days: int = 7) -> JSONResponse:
+    """Analyze effectiveness of different tool combinations."""
+    _init()
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+    sessions = []
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            if s.start_time >= cutoff:
+                sessions.append(s)
+
+    if not sessions:
+        return JSONResponse({"combinations": {}, "total_chains": 0})
+
+    correlator = SessionCorrelator()
+    chains = correlator.correlate_by_time(sessions)
+    transitions = correlator.detect_tool_transitions(chains, sessions)
+
+    analyzer = WorkflowAnalyzer()
+    # Calculate efficiency scores for each chain
+    for chain in chains:
+        chain.efficiency_score = analyzer._calculate_chain_efficiency(chain, transitions)
+
+    combinations = analyzer.analyze_tool_combinations(chains)
+
+    return JSONResponse({
+        "combinations": combinations,
+        "total_chains": len(chains),
     })
 
 
