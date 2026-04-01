@@ -60,7 +60,7 @@ _compute_deterministic_score = compute_deterministic_score
 _build_cost_forensics = build_cost_forensics
 
 # Maximum new (uncached) sessions to analyze per MAP run.
-_MAX_NEW_PER_MAP_RUN = 10
+_MAX_NEW_PER_MAP_RUN = 50
 
 __all__ = [
     "AIUsageOptimizer",
@@ -183,7 +183,7 @@ class AIUsageOptimizer:
             sessions,
             key=lambda s: s.estimated_cost_usd,
             reverse=True,
-        )[:30]
+        )[:100]
 
         to_analyze = [s for s in top_sessions if s.id not in cache and s.prompts]
         to_analyze = to_analyze[:_MAX_NEW_PER_MAP_RUN]

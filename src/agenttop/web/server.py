@@ -108,6 +108,20 @@ def api_sessions(days: int = 7) -> JSONResponse:
     return JSONResponse(sessions[:200])
 
 
+@app.get("/api/sessions/{session_id}")
+def api_session_detail(session_id: str) -> JSONResponse:
+    """Get full session detail including prompts."""
+    _init()
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            if s.id == session_id:
+                return JSONResponse(s.model_dump(mode="json"))
+    return JSONResponse({"error": "Session not found"}, status_code=404)
+
+
+
 @app.get("/api/models")
 def api_models() -> JSONResponse:
     _init()
@@ -164,6 +178,10 @@ def api_budget(days: int = 0) -> JSONResponse:
 
 class OptimizeRequest(BaseModel):
     days: int = 0
+
+class AnalyzeSessionsRequest(BaseModel):
+    session_ids: list[str]
+
 
 
 def _run_optimize(
@@ -386,6 +404,52 @@ async def api_optimize_stream(days: int = 0) -> StreamingResponse:
     )
 
 
+
+
+@app.post("/api/analyze-sessions")
+async def api_analyze_sessions(req: AnalyzeSessionsRequest) -> JSONResponse:
+    """Analyze user-selected sessions via the optimizer pipeline."""
+    if not req.session_ids:
+        return JSONResponse({"error": "No session IDs provided"}, status_code=400)
+
+    _init()
+    from agenttop.web.optimizer import AIUsageOptimizer
+
+    # Collect all sessions, filter to requested IDs
+    requested = set(req.session_ids)
+    selected_sessions: list = []
+    feature_configs: dict[str, Any] = {}
+    for _, collector in _collectors:
+        if collector.is_available():
+            for s in collector.collect_sessions():
+                if s.id in requested:
+                    selected_sessions.append(s)
+            fc = collector.get_feature_config()
+            if fc:
+                feature_configs[collector.tool_name.value] = fc
+
+    if not selected_sessions:
+        return JSONResponse({"error": "No matching sessions found"}, status_code=404)
+
+    stats = _get_all_stats(0)
+    model_usage = _claude.get_model_usage() if _claude and _claude.is_available() else {}
+
+    optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
+    try:
+        result = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None, optimizer.analyze, stats, selected_sessions,
+                model_usage, feature_configs,
+            ),
+            timeout=300.0,
+        )
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "Analysis timed out"}, status_code=504)
+    except Exception as e:
+        return JSONResponse({"error": f"Analysis failed: {e}"}, status_code=500)
+
+    return JSONResponse(result)
+
 # --- KB refresh manual trigger ---
 
 
@@ -445,6 +509,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     except Exception as e:
         logging.error("WebSocket error: %s", e, exc_info=True)
         _ws_clients.discard(ws)
+
+
+# --- Selective Session Analysis ---
 
 
 # --- Static files and SPA fallback ---

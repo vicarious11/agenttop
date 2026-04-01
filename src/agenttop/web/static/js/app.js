@@ -89,7 +89,13 @@ const App = {
       App.renderToolBar(App.data.stats);
       Panels.renderModels(App.data.models);
       Panels.renderHourly(App.data.hours);
-      Panels.renderSessions(App.data.sessions);
+      if (typeof SessionExplorer !== 'undefined') {
+        SessionExplorer._sessions = App.data.sessions;
+        SessionExplorer._applyFilters();
+        SessionExplorer.render();
+      } else {
+        Panels.renderSessions(App.data.sessions);
+      }
       Panels.renderCost(App.data.stats);
     } catch (err) {
       console.error('Failed to load data:', err);
