@@ -50,15 +50,17 @@ class WorkflowAnalyzer:
         # Detect patterns
         patterns = self._pattern_detector.detect_patterns(chains, transitions)
 
-        # Calculate efficiency scores for each chain
-        for chain in chains:
-            chain.efficiency_score = self._calculate_chain_efficiency(chain, transitions)
+        # Calculate efficiency scores for each chain (immutable: create new list)
+        chains_with_efficiency = [
+            chain.with_efficiency(self._calculate_chain_efficiency(chain, transitions))
+            for chain in chains
+        ]
 
         # Calculate aggregate metrics
-        metrics = self._calculate_metrics(chains, transitions)
+        metrics = self._calculate_metrics(chains_with_efficiency, transitions)
 
         # Get recommendations
-        recommendations = self._generate_recommendations(chains, patterns)
+        recommendations = self._generate_recommendations(chains_with_efficiency, patterns)
 
         return {
             "patterns": patterns,
@@ -209,7 +211,7 @@ class WorkflowAnalyzer:
             for p in patterns
         ]
 
-    def _calculate_chain_efficiency(
+    def calculate_chain_efficiency(
         self,
         chain: WorkflowChain,
         transitions: list[ToolTransition],

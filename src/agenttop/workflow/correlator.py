@@ -235,7 +235,9 @@ class SessionCorrelator:
                 score += 0.4
 
         # Time gap bonus (shorter = better)
-        time_gap = (to_session.start_time - from_session.end_time).total_seconds()
+        # Guard against None end_time - use start_time as fallback
+        from_end = from_session.end_time or from_session.start_time
+        time_gap = (to_session.start_time - from_end).total_seconds()
         if time_gap <= 300:  # 5 minutes
             score += 0.3
         elif time_gap <= 900:  # 15 minutes

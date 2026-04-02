@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +54,11 @@ _cached_optimize_time: float = 0.0
 _optimize_running = False
 _CACHE_TTL_SECONDS = 300  # 5-minute cache TTL
 
+# Workflow cache
+_cached_workflow: dict[str, Any] | None = None
+_cached_workflow_time: float = 0.0
+_cached_workflow_key: str = ""  # Cache key based on days+offset
+
 
 def _init() -> None:
     """Initialize config and collectors (lazy, once)."""
@@ -82,6 +88,62 @@ def _get_all_stats(days: int = 0) -> list[dict[str, Any]]:
         d["display_name"] = name
         results.append(d)
     return results
+
+
+def _collect_sessions(
+    days: int = 7,
+    offset: int = 0,
+) -> list:
+    """Collect sessions from all available collectors within time range.
+
+    Args:
+        days: Number of days to look back (1-365)
+        offset: Day offset for historical data
+
+    Returns:
+        List of sessions within the time range
+    """
+    _init()
+    # Calculate time range
+    end_date = datetime.now() - timedelta(days=offset)
+    cutoff = end_date - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
+
+    sessions = []
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            # Filter sessions within the time range [cutoff, end_date)
+            if s.start_time >= cutoff and s.start_time < end_date:
+                sessions.append(s)
+
+    return sessions
+
+
+def _get_workflow_cache_key(days: int, offset: int) -> str:
+    """Generate cache key for workflow endpoints."""
+    return f"workflow_{days}_{offset}"
+
+
+def _get_cached_workflow(cache_key: str) -> dict[str, Any] | None:
+    """Get cached workflow data if still valid."""
+    global _cached_workflow, _cached_workflow_time, _cached_workflow_key
+    now = datetime.now().timestamp()
+    if (
+        _cached_workflow is not None
+        and _cached_workflow_key == cache_key
+        and now - _cached_workflow_time < _CACHE_TTL_SECONDS
+    ):
+        return _cached_workflow
+    return None
+
+
+def _set_workflow_cache(cache_key: str, data: dict[str, Any]) -> None:
+    """Cache workflow data with current timestamp."""
+    global _cached_workflow, _cached_workflow_time, _cached_workflow_key
+    _cached_workflow = data
+    _cached_workflow_time = datetime.now().timestamp()
+    _cached_workflow_key = cache_key
 
 
 # --- API endpoints ---
@@ -174,19 +236,12 @@ def api_budget(days: int = 0) -> JSONResponse:
 
 
 @app.get("/api/workflow/chains")
-def api_workflow_chains(days: int = 7, gap_minutes: int = 30) -> JSONResponse:
+def api_workflow_chains(
+    days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
+    gap_minutes: int = Query(30, ge=5, le=120, description="Max gap between sessions (minutes)"),
+) -> JSONResponse:
     """Get workflow chains - correlated sessions across tools."""
-    _init()
-    from datetime import datetime, timedelta
-
-    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
-    sessions = []
-    for _, collector in _collectors:
-        if not collector.is_available():
-            continue
-        for s in collector.collect_sessions():
-            if s.start_time >= cutoff:
-                sessions.append(s)
+    sessions = _collect_sessions(days=days)
 
     if not sessions:
         return JSONResponse({"chains": [], "total": 0})
@@ -214,27 +269,22 @@ def api_workflow_chains(days: int = 7, gap_minutes: int = 30) -> JSONResponse:
 
 
 @app.get("/api/workflow/patterns")
-def api_workflow_patterns(days: int = 7, offset: int = 0) -> JSONResponse:
+def api_workflow_patterns(
+    days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
+    offset: int = Query(0, ge=0, le=365, description="Day offset for historical comparison"),
+) -> JSONResponse:
     """Detect workflow patterns from recent sessions.
 
     Args:
         days: Number of days to look back
         offset: Day offset (0 for current period, 7 for previous week, etc.)
     """
-    _init()
-    from datetime import datetime, timedelta
+    cache_key = _get_workflow_cache_key(days, offset)
+    cached = _get_cached_workflow(cache_key)
+    if cached:
+        return JSONResponse(cached)
 
-    # Calculate cutoff with offset for historical comparison
-    end_date = datetime.now() - timedelta(days=offset)
-    cutoff = end_date - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
-    sessions = []
-    for _, collector in _collectors:
-        if not collector.is_available():
-            continue
-        for s in collector.collect_sessions():
-            # Filter sessions within the time range [cutoff, end_date]
-            if s.start_time >= cutoff and s.start_time < end_date:
-                sessions.append(s)
+    sessions = _collect_sessions(days=days, offset=offset)
 
     if not sessions:
         return JSONResponse({"patterns": [], "total": 0})
@@ -263,29 +313,23 @@ def api_workflow_patterns(days: int = 7, offset: int = 0) -> JSONResponse:
     import dataclasses as _dc
     metrics_data = _dc.asdict(analysis.get("metrics")) if analysis.get("metrics") else None
 
-    return JSONResponse({
+    result = {
         "patterns": patterns_data,
         "total": len(patterns_data),
         "metrics": metrics_data,
-    })
+    }
+    _set_workflow_cache(cache_key, result)
+    return JSONResponse(result)
 
 
 @app.get("/api/workflow/recommendations")
-def api_workflow_recommendations(days: int = 7, task_type: str | None = None) -> JSONResponse:
+def api_workflow_recommendations(
+    days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
+    task_type: str | None = Query(None, description="Specific task type for recommendation"),
+) -> JSONResponse:
     """Get workflow recommendations based on usage patterns."""
-    _init()
-    from datetime import datetime, timedelta
-
-    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
-    sessions = []
-    available_tools = set()
-    for name, collector in _collectors:
-        if not collector.is_available():
-            continue
-        available_tools.add(name.lower().replace(" ", "_"))
-        for s in collector.collect_sessions():
-            if s.start_time >= cutoff:
-                sessions.append(s)
+    sessions = _collect_sessions(days=days)
+    available_tools = {name.lower().replace(" ", "_") for name, _ in _collectors if _collectors}
 
     if not sessions:
         return JSONResponse({"recommendations": [], "available_tools": list(available_tools)})
@@ -320,19 +364,11 @@ def api_workflow_recommendations(days: int = 7, task_type: str | None = None) ->
 
 
 @app.get("/api/workflow/switching-costs")
-def api_workflow_switching_costs(days: int = 7) -> JSONResponse:
+def api_workflow_switching_costs(
+    days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
+) -> JSONResponse:
     """Analyze tool switching costs and context loss."""
-    _init()
-    from datetime import datetime, timedelta
-
-    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
-    sessions = []
-    for _, collector in _collectors:
-        if not collector.is_available():
-            continue
-        for s in collector.collect_sessions():
-            if s.start_time >= cutoff:
-                sessions.append(s)
+    sessions = _collect_sessions(days=days)
 
     if not sessions:
         return JSONResponse({
@@ -356,19 +392,11 @@ def api_workflow_switching_costs(days: int = 7) -> JSONResponse:
 
 
 @app.get("/api/workflow/tool-combinations")
-def api_workflow_tool_combinations(days: int = 7) -> JSONResponse:
+def api_workflow_tool_combinations(
+    days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
+) -> JSONResponse:
     """Analyze effectiveness of different tool combinations."""
-    _init()
-    from datetime import datetime, timedelta
-
-    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
-    sessions = []
-    for _, collector in _collectors:
-        if not collector.is_available():
-            continue
-        for s in collector.collect_sessions():
-            if s.start_time >= cutoff:
-                sessions.append(s)
+    sessions = _collect_sessions(days=days)
 
     if not sessions:
         return JSONResponse({"combinations": {}, "total_chains": 0})
@@ -378,11 +406,13 @@ def api_workflow_tool_combinations(days: int = 7) -> JSONResponse:
     transitions = correlator.detect_tool_transitions(chains, sessions)
 
     analyzer = WorkflowAnalyzer()
-    # Calculate efficiency scores for each chain
-    for chain in chains:
-        chain.efficiency_score = analyzer._calculate_chain_efficiency(chain, transitions)
+    # Calculate efficiency scores using immutable pattern
+    chains_with_efficiency = [
+        chain.with_efficiency(analyzer.calculate_chain_efficiency(chain, transitions))
+        for chain in chains
+    ]
 
-    combinations = analyzer.analyze_tool_combinations(chains)
+    combinations = analyzer.analyze_tool_combinations(chains_with_efficiency)
 
     return JSONResponse({
         "combinations": combinations,

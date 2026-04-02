@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import Counter
 
-from agenttop.workflow.correlator import SessionCorrelator
 from agenttop.workflow.knowledge_base import WORKFLOW_PATTERNS, get_pattern_info
 from agenttop.workflow.models import ToolTransition, WorkflowChain, WorkflowPattern
 
@@ -14,9 +13,6 @@ log = logging.getLogger(__name__)
 
 class WorkflowPatternDetector:
     """Detects and classifies workflow patterns from tool usage sequences."""
-
-    def __init__(self) -> None:
-        self._correlator = SessionCorrelator()
 
     def detect_patterns(
         self,
@@ -34,16 +30,18 @@ class WorkflowPatternDetector:
         """
         patterns: list[WorkflowPattern] = []
         pattern_counts: Counter = Counter()
+        # Map chain IDs to pattern types (immutable approach)
+        chain_patterns: dict[str, str] = {}
 
         for chain in chains:
             pattern_type = self._classify_chain_pattern(chain, transitions)
             if pattern_type:
                 pattern_counts[pattern_type] += 1
-                chain.pattern_type = pattern_type
+                chain_patterns[chain.id] = pattern_type
 
         # Aggregate patterns
         for pattern_name, count in pattern_counts.items():
-            pattern_chains = [c for c in chains if c.pattern_type == pattern_name]
+            pattern_chains = [c for c in chains if chain_patterns.get(c.id) == pattern_name]
             if pattern_chains:
                 avg_efficiency = sum(
                     c.efficiency_score for c in pattern_chains if c.efficiency_score is not None

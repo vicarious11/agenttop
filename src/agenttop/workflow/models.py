@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 
@@ -18,7 +18,7 @@ class ToolType(str, Enum):
     GENERIC = "generic"
 
 
-@dataclass
+@dataclass(frozen=True)
 class WorkflowChain:
     """A sequence of correlated sessions across tools."""
     id: str
@@ -32,8 +32,16 @@ class WorkflowChain:
     efficiency_score: float | None = None  # 0.0 - 1.0
     pattern_type: str | None = None
 
+    def with_efficiency(self, score: float) -> "WorkflowChain":
+        """Return a new chain with updated efficiency score."""
+        return replace(self, efficiency_score=score)
 
-@dataclass
+    def with_pattern(self, pattern: str) -> "WorkflowChain":
+        """Return a new chain with updated pattern type."""
+        return replace(self, pattern_type=pattern)
+
+
+@dataclass(frozen=True)
 class ToolTransition:
     """A transition from one tool to another."""
     id: str
@@ -47,7 +55,7 @@ class ToolTransition:
     context_preservation_score: float | None = None  # 0.0 - 1.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class WorkflowPattern:
     """A detected workflow pattern."""
     name: str
@@ -61,7 +69,7 @@ class WorkflowPattern:
     last_seen: float = 0.0
 
 
-@dataclass
+@dataclass(frozen=True)
 class WorkflowRecommendation:
     """A recommendation for workflow improvement."""
     task_type: str
@@ -72,7 +80,7 @@ class WorkflowRecommendation:
     estimated_efficiency_gain: float
 
 
-@dataclass
+@dataclass(frozen=True)
 class SwitchingCost:
     """Cost of switching between tools."""
     from_tool: str
@@ -82,7 +90,7 @@ class SwitchingCost:
     mitigation_strategy: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class WorkflowMetrics:
     """Aggregated workflow metrics."""
     total_chains: int
