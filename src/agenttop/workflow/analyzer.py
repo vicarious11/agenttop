@@ -285,8 +285,8 @@ class WorkflowAnalyzer:
         # Transition matrix
         transition_matrix = self._correlator.get_transition_matrix(transitions)
 
-        # Average chain length
-        avg_chain_length = sum(len(c.tools) for c in chains) / len(chains) if chains else 0
+        # Average chain length (number of sessions per chain)
+        avg_chain_length = sum(len(c.session_ids) for c in chains) / len(chains) if chains else 0
 
         # Average efficiency
         efficiencies = [c.efficiency_score for c in chains if c.efficiency_score is not None]

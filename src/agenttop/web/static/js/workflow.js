@@ -5,6 +5,17 @@ const Workflow = {
   _prevWeekData: null,
   _refreshInterval: null,
 
+  // HTML escape to prevent XSS with user-provided or knowledge base content
+  _escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') return unsafe;
+    return unsafe
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  },
+
   toolColors: {
     claude_code: '#ff6b00',
     cursor: '#4488ff',
@@ -156,7 +167,7 @@ const Workflow = {
 
   _computeCostEfficiency() {
     const patterns = Workflow._data?.patterns?.patterns || [];
-    const toolCombinations = Workflow._data?.toolCombinations || {};
+    const toolCombinations = Workflow._data?.toolCombinations?.combinations || {};
 
     // Calculate efficiency per dollar for each tool
     const toolROI = {};
@@ -171,7 +182,7 @@ const Workflow = {
       }
     }
 
-    // From tool combinations
+    // From tool combinations (iterate over combinations, not the full response)
     for (const [combo, data] of Object.entries(toolCombinations)) {
       const tools = combo.split(' → ');
       for (const tool of tools) {
@@ -264,7 +275,7 @@ const Workflow = {
       return {
         type: 'timing',
         message: `Schedule deep work in ${timeInsights.peakTime}`,
-        detail: `Your efficiency is ${timeInsights.peakEfficiency}% higher then`,
+        detail: `Your efficiency is ${timeInsights.peakEfficiency}% higher during that time`,
         potentialGain: `+${timeInsights.peakEfficiency - 40}%`,
       };
     }
@@ -331,9 +342,9 @@ const Workflow = {
 
     return `
       <div class="wf-insight-card wf-insight-${insightType}">
-        <div class="wf-insight-title">${insight.title}</div>
-        <div class="wf-insight-message">${insight.message}</div>
-        ${insight.detail ? `<div class="wf-insight-detail">${insight.detail}</div>` : ''}
+        <div class="wf-insight-title">${Workflow._escapeHtml(insight.title)}</div>
+        <div class="wf-insight-message">${Workflow._escapeHtml(insight.message)}</div>
+        ${insight.detail ? `<div class="wf-insight-detail">${Workflow._escapeHtml(insight.detail)}</div>` : ''}
       </div>
     `;
   },
@@ -488,7 +499,7 @@ const Workflow = {
       return `
         <div class="wf-pattern-item">
           <span class="wf-pattern-icon" style="color: ${color}">${icon}</span>
-          <span class="wf-pattern-text">${Workflow._formatPatternName(p.name)}</span>
+          <span class="wf-pattern-text">${Workflow._escapeHtml(Workflow._formatPatternName(p.name))}</span>
           <span class="wf-pattern-count">${p.frequency}×</span>
         </div>
       `;
