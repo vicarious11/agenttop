@@ -52,7 +52,7 @@ class WorkflowAnalyzer:
 
         # Calculate efficiency scores for each chain (immutable: create new list)
         chains_with_efficiency = [
-            chain.with_efficiency(self._calculate_chain_efficiency(chain, transitions))
+            chain.with_efficiency(self.calculate_chain_efficiency(chain, transitions))
             for chain in chains
         ]
 
