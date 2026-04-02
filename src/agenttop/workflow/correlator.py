@@ -6,6 +6,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 
 from agenttop.models import Session
 from agenttop.workflow.models import ToolTransition, WorkflowChain
@@ -198,6 +199,12 @@ class SessionCorrelator:
         total_tokens = sum(s.total_tokens for s in sessions)
         total_cost = sum(s.estimated_cost_usd for s in sessions)
 
+        # Phase 1: Collect session start times (hour of day analysis)
+        session_start_times = [s.start_time.timestamp() for s in sessions]
+
+        # Phase 1: Calculate momentum score
+        momentum = self._calculate_momentum(sessions)
+
         return WorkflowChain(
             id=str(uuid.uuid4()),
             session_ids=[s.id for s in sessions],
@@ -209,6 +216,9 @@ class SessionCorrelator:
             total_cost=total_cost,
             efficiency_score=None,  # Computed later by analyzer
             pattern_type=None,  # Classified later by pattern detector
+            session_start_times=tuple(session_start_times),  # Phase 1
+            momentum_score=momentum,  # Phase 1
+            sample_size=len(sessions),  # Phase 1
         )
 
     def _estimate_context_preservation(
@@ -258,6 +268,90 @@ class SessionCorrelator:
                 score += 0.1
 
         return min(1.0, score)
+
+    def _calculate_momentum(
+        self,
+        sessions: list[Session],
+    ) -> float:
+        """Calculate how much sessions build on each other (0.0 - 1.0).
+
+        Higher momentum indicates strong continuity and context building.
+        Factors:
+        - Project consistency (same project = higher momentum)
+        - Prompt reuse (similar prompts indicate iterative work)
+        - Temporal proximity (shorter gaps = higher momentum)
+        - Tool consistency (staying with same tool or intentional switches)
+
+        Returns:
+            Float between 0.0 and 1.0
+        """
+        if len(sessions) < 2:
+            return 0.5  # Neutral for single session
+
+        momentum = 0.0
+
+        # Factor 1: Project consistency (0.4 points max)
+        # All sessions in same project = high momentum
+        projects = [s.project for s in sessions if s.project]
+        if len(projects) == len(sessions):  # All have projects
+            unique_projects = len(set(projects))
+            if unique_projects == 1:
+                momentum += 0.4  # All same project
+            elif unique_projects == 2:
+                momentum += 0.2  # Mostly same project
+        elif len(projects) >= len(sessions) * 0.7:
+            momentum += 0.3  # Most have projects
+
+        # Factor 2: Prompt reuse (0.3 points max)
+        # Calculate similarity between consecutive session prompts
+        prompt_similarities = []
+        for i in range(1, len(sessions)):
+            prev_prompts = sessions[i - 1].prompts
+            curr_prompts = sessions[i].prompts
+
+            if prev_prompts and curr_prompts:
+                # Compare first prompt of each session (most representative)
+                similarity = SequenceMatcher(
+                    None,
+                    prev_prompts[0] if prev_prompts else "",
+                    curr_prompts[0] if curr_prompts else ""
+                ).ratio()
+                prompt_similarities.append(similarity)
+
+        if prompt_similarities:
+            avg_similarity = sum(prompt_similarities) / len(prompt_similarities)
+            # Similarity > 0.3 indicates meaningful reuse
+            if avg_similarity > 0.5:
+                momentum += 0.3
+            elif avg_similarity > 0.3:
+                momentum += 0.15
+
+        # Factor 3: Temporal proximity (0.2 points max)
+        # Shorter gaps between sessions indicate higher momentum
+        time_gaps = []
+        for i in range(1, len(sessions)):
+            prev_end = sessions[i - 1].end_time or sessions[i - 1].start_time
+            curr_start = sessions[i].start_time
+            gap_minutes = (curr_start - prev_end).total_seconds() / 60
+            time_gaps.append(gap_minutes)
+
+        if time_gaps:
+            avg_gap = sum(time_gaps) / len(time_gaps)
+            if avg_gap < 5:  # Less than 5 minutes average gap
+                momentum += 0.2
+            elif avg_gap < 15:  # Less than 15 minutes
+                momentum += 0.1
+
+        # Factor 4: Tool consistency (0.1 points max)
+        # Consistent tool use or intentional switching patterns
+        tools = [s.tool for s in sessions]
+        unique_tools = len(set(tools))
+        if unique_tools == 1:
+            momentum += 0.1  # Consistent tool use
+        elif len(sessions) >= 3 and unique_tools == len(sessions):
+            momentum += 0.05  # Intentional switching each session
+
+        return min(1.0, momentum)
 
     def get_tool_usage_distribution(
         self,

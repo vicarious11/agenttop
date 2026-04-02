@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import Counter
 
 from agenttop.workflow.knowledge_base import WORKFLOW_PATTERNS, get_pattern_info
@@ -43,11 +44,8 @@ class WorkflowPatternDetector:
         for pattern_name, count in pattern_counts.items():
             pattern_chains = [c for c in chains if chain_patterns.get(c.id) == pattern_name]
             if pattern_chains:
-                avg_efficiency = sum(
-                    c.efficiency_score for c in pattern_chains if c.efficiency_score is not None
-                ) / len([c for c in pattern_chains if c.efficiency_score is not None]) if any(
-                    c.efficiency_score is not None for c in pattern_chains
-                ) else 0.5
+                efficiencies = [c.efficiency_score for c in pattern_chains if c.efficiency_score is not None]
+                avg_efficiency = sum(efficiencies) / len(efficiencies) if efficiencies else 0.5
 
                 avg_tokens = sum(c.total_tokens for c in pattern_chains) / len(pattern_chains)
                 avg_cost = sum(c.total_cost for c in pattern_chains) / len(pattern_chains)
@@ -57,6 +55,13 @@ class WorkflowPatternDetector:
                     for c in pattern_chains
                 ]
                 avg_duration = sum(durations) / len(durations) if durations else 0
+
+                # Phase 1: Calculate confidence intervals
+                efficiency_ci = self._calculate_confidence_interval(efficiencies) if len(efficiencies) >= 2 else None
+                duration_ci = self._calculate_confidence_interval(durations) if len(durations) >= 2 else None
+
+                # Phase 1: Confidence level based on sample size
+                confidence = self._get_confidence_level(len(pattern_chains))
 
                 # Get tool sequence (most common for this pattern)
                 tool_sequences = [tuple(c.tools) for c in pattern_chains]
@@ -73,10 +78,82 @@ class WorkflowPatternDetector:
                     avg_cost=avg_cost,
                     typical_duration_minutes=avg_duration,
                     last_seen=max(c.end_time for c in pattern_chains),
+                    efficiency_ci=efficiency_ci,  # Phase 1
+                    duration_ci=duration_ci,  # Phase 1
+                    sample_size=len(pattern_chains),  # Phase 1
+                    confidence=confidence,  # Phase 1
                 ))
 
         log.info("Detected %d unique patterns from %d chains", len(patterns), len(chains))
         return patterns
+
+    def _calculate_confidence_interval(
+        self,
+        values: list[float],
+        confidence: float = 0.95,
+    ) -> tuple[float, float] | None:
+        """Calculate confidence interval for a list of values.
+
+        Uses t-distribution for small samples (n < 30).
+
+        Args:
+            values: List of numeric values
+            confidence: Confidence level (default 0.95 for 95% CI)
+
+        Returns:
+            Tuple of (lower, upper) bounds or None if insufficient data
+        """
+        n = len(values)
+        if n < 2:
+            return None
+
+        mean = sum(values) / n
+
+        # Calculate sample standard deviation
+        variance = sum((x - mean) ** 2 for x in values) / (n - 1) if n > 1 else 0
+        std_dev = math.sqrt(variance)
+
+        if std_dev == 0:
+            return (mean, mean)
+
+        # Standard error
+        std_error = std_dev / math.sqrt(n)
+
+        # T-score for 95% confidence (approximate, use 2.0 for n >= 30)
+        if n >= 30:
+            t_score = 1.96  # Normal distribution approximation
+        else:
+            # Approximate t-scores for common sample sizes
+            t_table = {
+                2: 12.71, 3: 4.30, 4: 3.18, 5: 2.78, 6: 2.57,
+                7: 2.45, 8: 2.36, 9: 2.31, 10: 2.26, 11: 2.23,
+                12: 2.20, 13: 2.18, 14: 2.16, 15: 2.14, 16: 2.13,
+                17: 2.12, 18: 2.11, 19: 2.10, 20: 2.09, 25: 2.06,
+            }
+            t_score = t_table.get(n, 2.0)  # Default to 2.0 for larger small samples
+
+        margin_of_error = t_score * std_error
+
+        return (
+            round(max(0.0, mean - margin_of_error), 3),
+            round(min(1.0, mean + margin_of_error), 3),
+        )
+
+    def _get_confidence_level(self, sample_size: int) -> str:
+        """Get confidence level based on sample size.
+
+        Args:
+            sample_size: Number of samples
+
+        Returns:
+            "high", "medium", or "low"
+        """
+        if sample_size >= 10:
+            return "high"
+        elif sample_size >= 5:
+            return "medium"
+        else:
+            return "low"
 
     def _classify_chain_pattern(
         self,

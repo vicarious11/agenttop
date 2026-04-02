@@ -307,3 +307,29 @@ def calculate_optimal_workflow(task_type: str, available_tools: list[str]) -> li
         return available_tools[:1]
 
     return workflow
+
+
+# Tool pricing data for cost optimization
+# Approximate cost per 1M tokens (input) - lower is cheaper
+_TOOL_PRICING: dict[str, float] = {
+    "generic": 0.5,      # Free/very cheap
+    "kiro": 1.0,
+    "copilot": 2.0,     # Per seat, but low marginal cost
+    "continue": 5.0,
+    "aider": 10.0,
+    "cursor": 15.0,
+    "claude_code": 30.0,
+    "codex": 25.0,
+}
+
+
+def get_tool_pricing(tool_name: str) -> float | None:
+    """Get pricing tier for a tool.
+
+    Args:
+        tool_name: Name of the tool
+
+    Returns:
+        Cost per 1M tokens (input) if found, None otherwise
+    """
+    return _TOOL_PRICING.get(tool_name.lower())
