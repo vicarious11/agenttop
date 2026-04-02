@@ -164,7 +164,6 @@ def api_stats(days: int = 0) -> JSONResponse:
 @app.get("/api/sessions")
 def api_sessions(days: int = 7) -> JSONResponse:
     _init()
-    from datetime import datetime, timedelta
 
     cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
     sessions = []
