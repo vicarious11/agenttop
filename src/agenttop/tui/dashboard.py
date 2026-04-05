@@ -285,9 +285,12 @@ class DashboardView(Static):
         self,
         collectors: list[BaseCollector],
         days: int | None = None,
+        budget: float = 0.0,
     ) -> None:
         if days is not None:
             self._days = days
+        if budget > 0:
+            self._budget = budget
 
         table = self.query_one("#tool-table", DataTable)
         table.clear()
