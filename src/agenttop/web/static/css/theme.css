@@ -298,16 +298,38 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .cost-badge { }
 
 /* ══════════════════════════════════════════════════════
+   GRAPH SVG ELEMENTS
+   ══════════════════════════════════════════════════════ */
+
+.node-label { font-family: var(--font-mono); font-size: 10px; fill: var(--text-muted); pointer-events: none; text-anchor: middle; }
+.node-label-bright { fill: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.node-label-center { font-size: 12px; font-weight: 700; fill: var(--text-primary); }
+.edge-path { fill: none; transition: stroke-opacity 0.2s; }
+.edge-path.highlighted { stroke-opacity: 0.6 !important; }
+.edge-path.dimmed { stroke-opacity: 0.03 !important; }
+.edge-label { font-family: var(--font-mono); font-size: 8px; fill: var(--text-dim); pointer-events: none; transition: opacity 0.2s; }
+.particle { pointer-events: none; }
+
+/* Tooltip (graph hover) */
+.tooltip.visible { opacity: 1; }
+.tooltip-title { font-weight: 700; font-size: var(--text-sm); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.tooltip-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; color: var(--text-secondary); font-size: 10px; }
+.tooltip-row .val { color: var(--accent); font-weight: 600; }
+
+/* ══════════════════════════════════════════════════════
    NODE DETAIL OVERLAY
    ══════════════════════════════════════════════════════ */
 
 .detail-overlay {
-  position: fixed; top: 60px; right: var(--sp-4); width: 280px; z-index: 60;
+  position: fixed; top: 56px; right: 428px; width: 280px; z-index: 60;
   background: var(--bg-surface); border: 1px solid var(--border-default);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
   transition: opacity var(--duration-normal), transform var(--duration-normal);
+  max-height: calc(100vh - 100px); overflow-y: auto;
 }
 .detail-overlay.hidden { opacity: 0; pointer-events: none; transform: translateY(-8px); }
+.detail-overlay .panel-header { padding: var(--sp-3); }
+.detail-overlay #detail-content { padding: 0 var(--sp-3) var(--sp-3); }
 .detail-section { padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
 .detail-section:last-child { border-bottom: none; }
 .detail-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }

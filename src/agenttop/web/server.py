@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agenttop.collectors.base import BaseCollector
 from agenttop.collectors.claude import ClaudeCodeCollector
@@ -39,9 +39,9 @@ app = FastAPI(title="agenttop", docs_url=None, redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://127.0.0.1:8420", "http://localhost:8420"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 # Global state
@@ -408,7 +408,7 @@ class OptimizeRequest(BaseModel):
     days: int = 0
 
 class AnalyzeSessionsRequest(BaseModel):
-    session_ids: list[str]
+    session_ids: list[str] = Field(..., max_length=100)
 
 
 
