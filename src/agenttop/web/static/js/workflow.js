@@ -171,11 +171,13 @@ const Workflow = {
       }
     }
 
-    // From tool combinations
-    for (const [combo, data] of Object.entries(toolCombinations)) {
-      const tools = combo.split(' → ');
+    // From tool combinations — use .combinations, not the raw response
+    const combos = toolCombinations?.combinations || {};
+    for (const [combo, data] of Object.entries(combos)) {
+      if (typeof data !== 'object' || !data.avg_efficiency) continue;
+      const tools = (data.tools || combo.split(' → ')).filter(t => typeof t === 'string');
       for (const tool of tools) {
-        const roi = (data.avg_efficiency || 0.5) / (data.avg_cost || 1);
+        const roi = (data.avg_efficiency || 0.5) / Math.max(data.avg_cost || 1, 0.01);
         if (!toolROI[tool]) toolROI[tool] = [];
         toolROI[tool].push(roi);
       }
@@ -235,7 +237,8 @@ const Workflow = {
   },
 
   _findQuickWin() {
-    const switchingCosts = Workflow._data?.switchingCosts || {};
+    const switchingCostsRaw = Workflow._data?.switchingCosts || {};
+    const switchingCosts = switchingCostsRaw?.switching_costs || switchingCostsRaw || {};
     const timeInsights = Workflow._computeTimeInsights();
 
     // Find the most expensive switch
@@ -243,7 +246,8 @@ const Workflow = {
     let worstLoss = 0;
 
     for (const [key, data] of Object.entries(switchingCosts)) {
-      if (data.known_context_loss && data.known_context_loss > worstLoss) {
+      if (typeof data !== 'object' || !data.known_context_loss) continue;
+      if (data.known_context_loss > worstLoss) {
         worstLoss = data.known_context_loss;
         worstSwitch = { key, ...data };
       }
@@ -264,7 +268,7 @@ const Workflow = {
       return {
         type: 'timing',
         message: `Schedule deep work in ${timeInsights.peakTime}`,
-        detail: `Your efficiency is ${timeInsights.peakEfficiency}% higher then`,
+        detail: `Your efficiency peaks during ${timeInsights.peakTime} hours`,
         potentialGain: `+${timeInsights.peakEfficiency - 40}%`,
       };
     }
@@ -339,13 +343,18 @@ const Workflow = {
   },
 
   _renderTimeInsights(insights) {
-    if (!insights.peakTime) return '';
+    // Don't render if no meaningful data
+    if (!insights.peakTime || (insights.peakEfficiency === 0 && insights.avgDuration <= 0)) return '';
 
-    const timeEmoji = {
-      morning: '🌅',
-      afternoon: '☀️',
-      evening: '🌙',
-    };
+    const timeEmoji = { morning: '🌅', afternoon: '☀️', evening: '🌙' };
+    const effText = insights.peakEfficiency > 0
+      ? `${insights.peakEfficiency}% efficient`
+      : 'Most active';
+
+    // Format duration nicely
+    const durText = insights.avgDuration >= 60
+      ? `${(insights.avgDuration / 60).toFixed(1)}h`
+      : `${insights.avgDuration} min`;
 
     return `
       <div class="wf-insights-section">
@@ -354,7 +363,7 @@ const Workflow = {
           <div class="wf-time-card">
             <div class="wf-time-icon">${timeEmoji[insights.peakTime] || '📊'}</div>
             <div class="wf-time-label">${Workflow._capitalize(insights.peakTime)}</div>
-            <div class="wf-time-value">${insights.peakEfficiency}% efficient</div>
+            <div class="wf-time-value">${effText}</div>
           </div>
           <div class="wf-time-card">
             <div class="wf-time-icon">⏱️</div>
@@ -364,7 +373,7 @@ const Workflow = {
           <div class="wf-time-card">
             <div class="wf-time-icon">📈</div>
             <div class="wf-time-label">Avg Duration</div>
-            <div class="wf-time-value">${insights.avgDuration} min</div>
+            <div class="wf-time-value">${durText}</div>
           </div>
         </div>
       </div>
