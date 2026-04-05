@@ -1,14 +1,47 @@
 # agenttop
 
-`htop` for AI coding agents. Monitor every token, dollar, and session across Claude Code, Cursor, Kiro, Codex, and Copilot — from a single dashboard.
+`htop` for AI coding agents. Monitor every token, dollar, and session across Claude Code, Cursor, Kiro, Codex, and Copilot — from a single terminal or web dashboard.
 
-```
-git clone https://github.com/vicarious11/agenttop && cd agenttop
-python3 install.py    # one-time: venv, deps, Ollama, model pull
-./start               # opens http://localhost:8420
+## Install
+
+```bash
+# pip (recommended)
+pip install agenttop
+
+# or pipx (isolated)
+pipx install agenttop
+
+# or one-liner
+curl -fsSL https://raw.githubusercontent.com/vicarious11/agenttop/main/install.sh | bash
+
+# or from source
+git clone https://github.com/vicarious11/agenttop && cd agenttop && ./setup.sh
 ```
 
-Works on **macOS, Linux, and Windows**. Only needs Python 3.10+. No global installs, no Docker, no API keys. Everything runs locally in a virtualenv.
+## Usage
+
+```bash
+agenttop              # terminal dashboard (htop-style)
+agenttop web          # web dashboard at localhost:8420
+agenttop stats        # quick stats summary
+agenttop init         # configure LLM for AI analysis
+```
+
+Works on **macOS, Linux, and Windows**. Only needs Python 3.10+. No Docker, no API keys required. Everything runs locally.
+
+## Features
+
+**Terminal (TUI)** — 6 tabs: Dashboard, Sessions, Explorer, Analysis, Knowledge Graph, Suggestions. Press `e` to open the interactive session explorer — search sessions, select with Space, view full prompt history with Enter, analyze via LLM with F5.
+
+**Web Dashboard** — Force-directed knowledge graph, model usage bars, hourly activity, cost breakdown, interactive session explorer with multi-select batch analysis, AI optimizer with score/grades/recommendations.
+
+**Session Explorer** — Browse every session across all your AI tools. Filter by tool, search by project or prompt content. Select sessions and run LLM analysis to get a score, anti-patterns, and personalized recommendations.
+
+**AI Optimizer** — Map-Reduce-Generate architecture. Analyzes your sessions via LLM (Ollama, Anthropic, OpenAI, or OpenRouter), computes a deterministic score (0-100), identifies anti-patterns, and generates actionable recommendations.
+
+**Workflow Intelligence** — Detects cross-tool patterns, measures switching costs, finds optimal tool combinations, tracks week-over-week efficiency trends.
+
+No telemetry. No cloud uploads. Your data never leaves your machine.
 
 ![agenttop optimizer — AI-powered workflow analysis](assets/screenshots/optimizer.png)
 
@@ -107,10 +140,11 @@ No telemetry. No cloud uploads. Your data never leaves your machine.
 │   │  index.html ─── Vanilla JS, no frameworks                │             │
 │   │  ├── graph.js     D3 force-directed knowledge graph      │             │
 │   │  ├── panels.js    Model usage, sessions, cost breakdown  │             │
-│   │  ├── optimizer.js Optimizer drawer with full analysis     │             │
+│   │  ├── session-explorer.js  Interactive session browser     │             │
+│   │  ├── optimizer.js Side panel with full analysis           │             │
 │   │  ├── stats.js     Real-time stat counters                │             │
 │   │  ├── app.js       WebSocket + routing                    │             │
-│   │  └── neon.css     Cyberpunk theme (CSS custom properties)│             │
+│   │  └── theme.css    Crafted dark theme (CSS tokens)        │             │
 │   └──────────────────────────────────────────────────────────┘             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
