@@ -63,7 +63,12 @@ class KnowledgeGraphView(Static):
             else:
                 self._build_generic_subtree(root, collector)
 
+        # Auto-expand everything 2 levels deep
         root.expand()
+        for child in root.children:
+            child.expand()
+            for grandchild in child.children:
+                grandchild.expand()
 
     def _build_claude_subtree(self, root: Tree, collector) -> None:
         summary = collector.get_session_summary()
@@ -114,20 +119,25 @@ class KnowledgeGraphView(Static):
                 if "/" in proj:
                     proj = proj.rstrip("/").rsplit("/", 1)[-1]
                 if proj not in project_counts:
-                    project_counts[proj] = {"prompts": 0, "sessions": 0}
+                    project_counts[proj] = {"prompts": 0, "sessions": 0, "cost": 0.0}
                 project_counts[proj]["prompts"] += s.message_count
                 project_counts[proj]["sessions"] += 1
+                project_counts[proj]["cost"] += s.estimated_cost_usd
 
             if project_counts:
                 projects_node = node.add("[bold]Projects[/]")
+                max_prompts = max((c["prompts"] for c in project_counts.values()), default=1) or 1
                 for proj, counts in sorted(
                     project_counts.items(),
                     key=lambda x: x[1]["prompts"],
                     reverse=True,
-                ):
+                )[:15]:
+                    bar_len = max(1, int(counts["prompts"] / max_prompts * 15))
+                    bar = "█" * bar_len
+                    cost_str = f", ${counts.get('cost', 0):.2f}" if counts.get("cost", 0) > 0 else ""
                     projects_node.add(
-                        f"{proj} ({human_number(counts['prompts'])} prompts, "
-                        f"{counts['sessions']} sessions)"
+                        f"{proj} — {human_number(counts['prompts'])} msgs, "
+                        f"{counts['sessions']} sess{cost_str}  [green]{bar}[/]"
                     )
         except Exception:
             pass

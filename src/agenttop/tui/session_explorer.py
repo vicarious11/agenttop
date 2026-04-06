@@ -325,6 +325,8 @@ class SessionExplorerView(Static):
                     sessions.append(s)
         except Exception:
             pass
+        # Filter out empty/junk sessions (0 messages AND 0 tokens)
+        sessions = [s for s in sessions if s.message_count > 0 or s.total_tokens > 0]
         sessions.sort(key=lambda s: s.start_time, reverse=True)
         self._sessions = sessions
         self._apply_filters()
@@ -355,7 +357,7 @@ class SessionExplorerView(Static):
             tool = TOOL_DISPLAY.get(s.tool.value, s.tool.value)
             project = s.project.rstrip("/").rsplit("/", 1)[-1] if s.project else "(unknown)"
             project = (project[:25] + "…") if len(project) > 25 else project
-            check = "[green]●[/green]" if s.id in self._selected else "[dim]○[/dim]"
+            check = "[bold green]✓[/bold green]" if s.id in self._selected else "[dim]·[/dim]"
             table.add_row(
                 check, tool, project, s.start_time.strftime("%m-%d %H:%M"),
                 _fmt_duration(s), str(s.message_count),
@@ -401,6 +403,9 @@ class SessionExplorerView(Static):
             self._selected.add(sid)
         self._render_table()
         self._update_btn()
+        n = len(self._selected)
+        if n > 0:
+            self.notify(f"{n} session{'s' if n > 1 else ''} selected — press F5 to analyze")
 
     def action_select_all(self) -> None:
         if len(self._selected) == len(self._filtered):
