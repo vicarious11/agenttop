@@ -191,15 +191,10 @@ const SessionExplorer = {
               <span class="se-time">${timeAgo}</span>
             </div>
             <div class="se-row-bottom">
-              ${firstPrompt ? `<span class="se-preview">${firstPrompt}</span>` : ''}
+              <span class="se-preview">${firstPrompt || `${msgs} msgs \u00b7 ${tokens} tok`}</span>
             </div>
           </div>
-          <div class="se-metrics">
-            ${dur ? `<span class="se-metric">${dur}</span>` : ''}
-            <span class="se-metric">${msgs} msg${msgs !== 1 ? 's' : ''}</span>
-            <span class="se-metric">${tokens} tok</span>
-            <span class="se-metric se-cost">${cost}</span>
-          </div>
+          <span class="se-metric se-cost">${cost}</span>
         </div>`;
     });
 
