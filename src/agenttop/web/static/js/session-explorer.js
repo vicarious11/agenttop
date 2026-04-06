@@ -144,7 +144,7 @@ const SessionExplorer = {
 
     let html = `<div class="se-container">
       <div class="se-toolbar">
-        <input class="se-search" placeholder="Search by project or prompt..." value="${SessionExplorer._escapeHtml(SessionExplorer._filters.search)}">
+        <input class="se-search" placeholder="Search sessions..." value="${SessionExplorer._escapeHtml(SessionExplorer._filters.search)}">
         <select class="se-filter-tool">
           <option value="">All Tools</option>
           ${toolOpts}
@@ -154,6 +154,7 @@ const SessionExplorer = {
           ${SessionExplorer._analyzing ? 'Analyzing...' : analyzeLabel}
         </button>
       </div>
+      <div class="se-body">
       <div class="se-list">`;
 
     // Session rows — show tool, project, metrics, first prompt preview
@@ -202,7 +203,7 @@ const SessionExplorer = {
       html += `<div class="panel-empty" style="padding:8px;">+ ${filtered.length - 100} more sessions</div>`;
     }
 
-    html += '</div></div>';
+    html += '</div></div></div>'; // close se-list, se-body, se-container
     el.innerHTML = html;
 
     // Event listeners
@@ -308,12 +309,14 @@ const SessionExplorer = {
 
     if (!session) return;
 
-    // Create or update detail panel
+    // Create or update detail panel inside se-body (side by side with list)
     let detail = el.querySelector('.se-detail');
     if (!detail) {
       detail = document.createElement('div');
       detail.className = 'se-detail';
-      el.querySelector('.se-container').appendChild(detail);
+      const body = el.querySelector('.se-body');
+      if (body) body.appendChild(detail);
+      else el.querySelector('.se-container').appendChild(detail);
     }
 
     const proj = session.project ? session.project.split('/').pop() : 'unknown';
@@ -339,6 +342,9 @@ const SessionExplorer = {
       }).join('');
     }
 
+    const toolCalls = session.tool_call_count || 0;
+    const startTime = session.start_time ? new Date(session.start_time).toLocaleString() : '';
+
     detail.innerHTML = `
       <div class="se-detail-header">
         <button class="se-back">\u2190</button>
@@ -347,9 +353,14 @@ const SessionExplorer = {
       </div>
       <div class="se-detail-meta">
         ${dur ? `<span>${dur}</span>` : ''}
-        <span>${msgs} messages</span>
-        <span>${tokens} tokens</span>
+        <span>${msgs} msgs</span>
+        <span>${toolCalls} tool calls</span>
+        <span>${tokens} tok</span>
         <span>${cost}</span>
+      </div>
+      <div class="se-detail-meta" style="border-bottom:1px solid var(--border-default);padding-bottom:6px;">
+        <span>Started: ${startTime}</span>
+        <span>${prompts.length} prompts</span>
       </div>
       <div class="se-prompts">${promptsHtml}</div>
       <div style="padding:12px;border-top:1px solid var(--border-default);">
@@ -359,12 +370,10 @@ const SessionExplorer = {
     // Slide in
     requestAnimationFrame(() => detail.classList.add('open'));
 
-    // Back button
+    // Back button — collapse detail panel
     detail.querySelector('.se-back').addEventListener('click', () => {
       detail.classList.remove('open');
       SessionExplorer._activeId = null;
-      setTimeout(() => { if (detail.parentNode) detail.remove(); }, 200);
-      SessionExplorer.render();
     });
 
     // Expand prompts on click

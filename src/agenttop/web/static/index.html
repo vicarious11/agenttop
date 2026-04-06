@@ -9,7 +9,6 @@
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 </head>
 <body>
-  <!-- Animated background layers -->
   <div class="bg-grid"></div>
   <div class="bg-scan"></div>
   <div class="bg-vignette"></div>
@@ -49,86 +48,72 @@
     </div>
   </header>
 
-  <!-- Main Layout: Graph + Data Panels -->
+  <!-- Main: Top row = Graph + Metrics, Bottom row = Sessions -->
   <main id="main">
-    <!-- Left: Knowledge Graph -->
-    <div id="graph-container" class="glass-panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span class="panel-icon">◈</span>
-          Knowledge Graph
+    <!-- Top Row -->
+    <div id="top-row">
+      <!-- Left: Knowledge Graph -->
+      <div id="graph-container" class="glass-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="panel-icon">◈</span>
+            Knowledge Graph
+          </div>
+          <div class="graph-legend" id="graph-legend"></div>
         </div>
-        <div class="graph-legend" id="graph-legend"></div>
+        <div id="graph-area">
+          <svg id="graph-svg"></svg>
+        </div>
       </div>
-      <div id="graph-area">
-        <svg id="graph-svg"></svg>
+
+      <!-- Right: Compact Metrics -->
+      <div id="data-column">
+        <div id="model-panel" class="glass-panel mini-panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">⬡</span> Model Usage</div>
+            <div class="model-legend">
+              <span class="ml-dot ml-input"></span>In
+              <span class="ml-dot ml-output"></span>Out
+              <span class="ml-dot ml-cache"></span>Cache
+            </div>
+          </div>
+          <div id="model-content" class="panel-body"></div>
+        </div>
+
+        <div id="hourly-panel" class="glass-panel mini-panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">◰</span> Hourly Activity</div>
+            <div id="hourly-total" class="panel-badge"></div>
+          </div>
+          <div id="hourly-content" class="panel-body"></div>
+        </div>
+
+        <div id="cost-panel" class="glass-panel mini-panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">◇</span> Cost Breakdown</div>
+            <div id="cost-total-badge" class="panel-badge cost-badge"></div>
+          </div>
+          <div id="cost-content" class="panel-body"></div>
+        </div>
+
+        <div id="workflow-panel" class="glass-panel mini-panel">
+          <div class="panel-header">
+            <div class="panel-title"><span class="panel-icon">⬡</span> Workflow</div>
+            <div id="workflow-badge" class="panel-badge"></div>
+          </div>
+          <div id="workflow-content" class="panel-body"></div>
+        </div>
       </div>
     </div>
 
-    <!-- Right: Stacked Data Panels -->
-    <div id="data-column">
-      <!-- Model Usage -->
-      <div id="model-panel" class="glass-panel mini-panel">
+    <!-- Bottom Row: Full-width Session Explorer -->
+    <div id="bottom-row">
+      <div id="sessions-panel" class="glass-panel">
         <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-icon">⬡</span>
-            Model Usage
-          </div>
-          <div class="model-legend">
-            <span class="ml-dot ml-input"></span>Input
-            <span class="ml-dot ml-output"></span>Output
-            <span class="ml-dot ml-cache"></span>Cache
-          </div>
-        </div>
-        <div id="model-content" class="panel-body"></div>
-      </div>
-
-      <!-- Hourly Activity -->
-      <div id="hourly-panel" class="glass-panel mini-panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-icon">◰</span>
-            Hourly Activity
-          </div>
-          <div id="hourly-total" class="panel-badge"></div>
-        </div>
-        <div id="hourly-content" class="panel-body"></div>
-      </div>
-
-      <!-- Session Explorer -->
-      <div id="sessions-panel" class="glass-panel mini-panel sessions-stretch">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-icon">▣</span>
-            Sessions
-          </div>
+          <div class="panel-title"><span class="panel-icon">▣</span> Sessions</div>
           <div id="sessions-count" class="panel-badge"></div>
         </div>
-        <div id="sessions-content" class="panel-body" style="position:relative;overflow:hidden;"></div>
-      </div>
-
-      <!-- Cost Breakdown -->
-      <div id="cost-panel" class="glass-panel mini-panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-icon">◇</span>
-            Cost Breakdown
-          </div>
-          <div id="cost-total-badge" class="panel-badge cost-badge"></div>
-        </div>
-        <div id="cost-content" class="panel-body"></div>
-      </div>
-
-      <!-- Workflow Intelligence -->
-      <div id="workflow-panel" class="glass-panel mini-panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-icon">⬡</span>
-            Workflow Intelligence
-          </div>
-          <div id="workflow-badge" class="panel-badge"></div>
-        </div>
-        <div id="workflow-content" class="panel-body"></div>
+        <div id="sessions-content" class="panel-body sessions-body"></div>
       </div>
     </div>
   </main>
@@ -136,32 +121,14 @@
   <!-- Node Detail Overlay -->
   <aside id="node-detail" class="glass-panel detail-overlay hidden">
     <div class="panel-header">
-      <div class="panel-title">
-        <span class="panel-icon">▣</span>
-        Node Detail
-      </div>
+      <div class="panel-title"><span class="panel-icon">▣</span> Node Detail</div>
       <button id="detail-close" class="icon-btn">&times;</button>
     </div>
     <div id="detail-content"></div>
   </aside>
 
-  <!-- Bottom: Tool breakdown bar -->
+  <!-- Tool Bar -->
   <div id="tool-bar" class="tool-bar"></div>
-
-  <!-- Bottom Optimizer Drawer -->
-  <div id="optimizer-drawer" class="glass-panel drawer collapsed">
-    <div class="drawer-handle" id="drawer-toggle">
-      <div class="drawer-handle-left">
-        <span class="drawer-icon">⬡</span>
-        <span class="drawer-title">AI Usage Optimizer</span>
-      </div>
-      <div class="drawer-controls">
-        <span class="drawer-fullscreen-btn" id="drawer-fullscreen" title="Toggle fullscreen">⛶</span>
-        <span class="drawer-chevron" id="drawer-chevron">▲</span>
-      </div>
-    </div>
-    <div id="optimizer-content" class="drawer-body"></div>
-  </div>
 
   <!-- Tooltip -->
   <div id="tooltip" class="tooltip"></div>

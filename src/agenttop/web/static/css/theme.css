@@ -91,8 +91,13 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 
 #main {
   position: fixed; top: 48px; left: 0; right: 0; bottom: 36px;
-  display: grid; grid-template-columns: 1fr 420px; gap: 0;
-  overflow: hidden;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* Top row: graph + metrics side by side */
+#top-row {
+  display: grid; grid-template-columns: 1fr 380px; flex: 1; min-height: 0;
+  border-bottom: 1px solid var(--border-default);
 }
 
 #graph-container {
@@ -125,6 +130,17 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .mini-panel { }
 .sessions-stretch { flex: 1; min-height: 200px; display: flex; flex-direction: column; }
 .sessions-stretch .panel-body { flex: 1; overflow-y: auto; padding: 0; position: relative; }
+
+/* Bottom row: full-width session explorer */
+#bottom-row {
+  flex: 1; min-height: 250px; display: flex; flex-direction: column;
+}
+#bottom-row #sessions-panel {
+  flex: 1; display: flex; flex-direction: column; border-bottom: none;
+}
+#bottom-row .sessions-body {
+  flex: 1; overflow: hidden; padding: 0; position: relative;
+}
 
 /* ══════════════════════════════════════════════════════
    TOPBAR
@@ -647,6 +663,7 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
    ══════════════════════════════════════════════════════ */
 
 .se-container { display: flex; flex-direction: column; height: 100%; }
+.se-body { display: flex; flex: 1; min-height: 0; }
 .se-toolbar { display: flex; gap: var(--sp-1); padding: var(--sp-2); border-bottom: 1px solid var(--border-default); flex-shrink: 0; align-items: center; flex-wrap: wrap; }
 .se-search { flex: 1; min-width: 120px; padding: 5px var(--sp-2); background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: var(--radius-md); color: var(--text-primary); font-size: var(--text-xs); outline: none; font-family: var(--font-sans); }
 .se-search:focus { border-color: var(--accent); }
@@ -656,7 +673,7 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .se-analyze-btn { padding: 5px var(--sp-2); background: var(--accent); color: var(--bg-root); border: none; border-radius: var(--radius-md); font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all var(--duration-fast); }
 .se-analyze-btn:not(.active) { opacity: 0.35; cursor: default; }
 .se-analyze-btn.active:hover { background: var(--accent-hover); }
-.se-list { flex: 1; overflow-y: auto; }
+.se-list { flex: 1; overflow-y: auto; min-width: 0; }
 
 /* Session row — compact for 420px panel */
 .se-row { display: flex; align-items: flex-start; gap: 6px; padding: 6px var(--sp-2); border-bottom: 1px solid var(--border-subtle); cursor: pointer; transition: background var(--duration-fast); }
@@ -676,9 +693,9 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .se-metric.se-cost { color: var(--tool-claude); font-weight: 600; }
 .se-time { font-size: 9px; color: var(--text-dim); flex-shrink: 0; }
 
-/* Session detail — full width overlay */
-.se-detail { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-surface); display: flex; flex-direction: column; z-index: 10; transform: translateX(100%); transition: transform var(--duration-normal) var(--ease-out); }
-.se-detail.open { transform: translateX(0); }
+/* Session detail — right column in full-width mode */
+.se-detail { width: 0; overflow: hidden; background: var(--bg-surface); border-left: 1px solid var(--border-default); display: flex; flex-direction: column; transition: width var(--duration-normal) var(--ease-out); flex-shrink: 0; }
+.se-detail.open { width: 50%; }
 .se-detail-header { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border-default); }
 .se-back { background: none; border: none; color: var(--text-muted); font-size: var(--text-lg); cursor: pointer; padding: 2px; }
 .se-back:hover { color: var(--text-primary); }
