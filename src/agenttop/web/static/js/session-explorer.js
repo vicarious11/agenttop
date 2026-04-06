@@ -156,33 +156,50 @@ const SessionExplorer = {
       </div>
       <div class="se-list">`;
 
-    // Session rows
-    const display = filtered.slice(0, 100); // cap display for perf
+    // Session rows — show tool, project, metrics, first prompt preview
+    const display = filtered.slice(0, 100);
     display.forEach((s, idx) => {
       const proj = s.project ? (s.project.split('/').pop() || s.project) : 'unknown';
-      const projLabel = proj.length > 22 ? proj.slice(0, 22) + '\u2026' : proj;
+      const projLabel = proj.length > 20 ? proj.slice(0, 20) + '\u2026' : proj;
       const color = SessionExplorer._toolColor(s.tool);
+      const toolName = SessionExplorer._toolDisplayName(s.tool);
       const dur = SessionExplorer._formatDuration(s);
       const timeAgo = SessionExplorer._formatTimeAgo(s);
       const tokens = s.total_tokens > 0 ? App.formatNum(s.total_tokens) : '-';
       const cost = s.estimated_cost_usd > 0 ? App.formatCost(s.estimated_cost_usd) : '-';
+      const msgs = s.message_count || 0;
+      const toolCalls = s.tool_call_count || 0;
       const isActive = s.id === SessionExplorer._activeId;
       const isSelected = selected.has(s.id);
-      const cls = [
-        'se-row',
-        isActive ? 'active' : '',
-        isSelected ? 'selected' : '',
-      ].filter(Boolean).join(' ');
+
+      // First prompt preview
+      const prompts = s.prompts || [];
+      const firstPrompt = prompts.length > 0
+        ? SessionExplorer._escapeHtml(prompts[0].slice(0, 60)) + (prompts[0].length > 60 ? '...' : '')
+        : '';
+
+      const cls = ['se-row', isActive ? 'active' : '', isSelected ? 'selected' : ''].filter(Boolean).join(' ');
 
       html += `
         <div class="${cls}" data-id="${SessionExplorer._escapeHtml(s.id)}" data-idx="${idx}">
           <input type="checkbox" class="se-check" ${isSelected ? 'checked' : ''}>
-          <span class="se-dot" style="background:${color}"></span>
-          <span class="se-project" title="${SessionExplorer._escapeHtml(s.project || '')}">${SessionExplorer._escapeHtml(projLabel)}</span>
-          ${dur ? `<span class="se-dur">${dur}</span>` : ''}
-          <span class="se-cost">${cost}</span>
-          <span class="se-tokens">${tokens}</span>
-          <span class="se-time">${timeAgo}</span>
+          <span class="se-dot" style="background:${color}" title="${toolName}"></span>
+          <div class="se-main">
+            <div class="se-row-top">
+              <span class="se-project" title="${SessionExplorer._escapeHtml(s.project || '')}">${SessionExplorer._escapeHtml(projLabel)}</span>
+              <span class="se-tool-label">${toolName}</span>
+              <span class="se-time">${timeAgo}</span>
+            </div>
+            <div class="se-row-bottom">
+              ${firstPrompt ? `<span class="se-preview">${firstPrompt}</span>` : ''}
+            </div>
+          </div>
+          <div class="se-metrics">
+            ${dur ? `<span class="se-metric">${dur}</span>` : ''}
+            <span class="se-metric">${msgs} msg${msgs !== 1 ? 's' : ''}</span>
+            <span class="se-metric">${tokens} tok</span>
+            <span class="se-metric se-cost">${cost}</span>
+          </div>
         </div>`;
     });
 
