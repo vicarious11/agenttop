@@ -579,3 +579,5 @@ const SessionExplorer = {
     if (btn) { btn.disabled = false; btn.textContent = 'Re-analyze'; }
   },
 };
+
+document.addEventListener('DOMContentLoaded', () => SessionExplorer.init());
