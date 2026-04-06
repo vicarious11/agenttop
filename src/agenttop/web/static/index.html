@@ -18,14 +18,8 @@
     <div class="logo">
       <div class="logo-glyph">
         <svg width="28" height="28" viewBox="0 0 28 28">
-          <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="none" stroke="#ff6b00" stroke-width="1.5" class="logo-hex-spin"/>
-          <circle cx="14" cy="14" r="4" fill="#ff6b00" class="logo-core"/>
-          <line x1="14" y1="2" x2="14" y2="10" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
-          <line x1="26" y1="8" x2="18" y2="12" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
-          <line x1="26" y1="20" x2="18" y2="16" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
-          <line x1="14" y1="26" x2="14" y2="18" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
-          <line x1="2" y1="20" x2="10" y2="16" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
-          <line x1="2" y1="8" x2="10" y2="12" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="none" stroke="#2dd4bf" stroke-width="1.5" class="logo-hex-spin"/>
+          <circle cx="14" cy="14" r="4" fill="#2dd4bf" class="logo-core"/>
         </svg>
       </div>
       <span class="logo-text">agent<span class="accent">top</span></span>
@@ -48,72 +42,47 @@
     </div>
   </header>
 
-  <!-- Main: Top row = Graph + Metrics, Bottom row = Sessions -->
+  <!-- Main: Graph left, Panels right -->
   <main id="main">
-    <!-- Top Row -->
-    <div id="top-row">
-      <!-- Left: Knowledge Graph -->
-      <div id="graph-container" class="glass-panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span class="panel-icon">◈</span>
-            Knowledge Graph
-          </div>
-          <div class="graph-legend" id="graph-legend"></div>
-        </div>
-        <div id="graph-area">
-          <svg id="graph-svg"></svg>
-        </div>
+    <div id="graph-container" class="glass-panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="panel-icon">◈</span> Knowledge Graph</div>
+        <div class="graph-legend" id="graph-legend"></div>
       </div>
-
-      <!-- Right: Compact Metrics -->
-      <div id="data-column">
-        <div id="model-panel" class="glass-panel mini-panel">
-          <div class="panel-header">
-            <div class="panel-title"><span class="panel-icon">⬡</span> Model Usage</div>
-            <div class="model-legend">
-              <span class="ml-dot ml-input"></span>In
-              <span class="ml-dot ml-output"></span>Out
-              <span class="ml-dot ml-cache"></span>Cache
-            </div>
-          </div>
-          <div id="model-content" class="panel-body"></div>
-        </div>
-
-        <div id="hourly-panel" class="glass-panel mini-panel">
-          <div class="panel-header">
-            <div class="panel-title"><span class="panel-icon">◰</span> Hourly Activity</div>
-            <div id="hourly-total" class="panel-badge"></div>
-          </div>
-          <div id="hourly-content" class="panel-body"></div>
-        </div>
-
-        <div id="cost-panel" class="glass-panel mini-panel">
-          <div class="panel-header">
-            <div class="panel-title"><span class="panel-icon">◇</span> Cost Breakdown</div>
-            <div id="cost-total-badge" class="panel-badge cost-badge"></div>
-          </div>
-          <div id="cost-content" class="panel-body"></div>
-        </div>
-
-        <div id="workflow-panel" class="glass-panel mini-panel">
-          <div class="panel-header">
-            <div class="panel-title"><span class="panel-icon">⬡</span> Workflow</div>
-            <div id="workflow-badge" class="panel-badge"></div>
-          </div>
-          <div id="workflow-content" class="panel-body"></div>
-        </div>
-      </div>
+      <div id="graph-area"><svg id="graph-svg"></svg></div>
     </div>
 
-    <!-- Bottom Row: Full-width Session Explorer -->
-    <div id="bottom-row">
-      <div id="sessions-panel" class="glass-panel">
+    <div id="data-column">
+      <div id="model-panel" class="glass-panel mini-panel">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-icon">▣</span> Sessions</div>
-          <div id="sessions-count" class="panel-badge"></div>
+          <div class="panel-title"><span class="panel-icon">⬡</span> Model Usage</div>
+          <div class="model-legend"><span class="ml-dot ml-input"></span>In <span class="ml-dot ml-output"></span>Out <span class="ml-dot ml-cache"></span>Cache</div>
         </div>
-        <div id="sessions-content" class="panel-body sessions-body"></div>
+        <div id="model-content" class="panel-body"></div>
+      </div>
+
+      <div id="hourly-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">◰</span> Hourly Activity</div>
+          <div id="hourly-total" class="panel-badge"></div>
+        </div>
+        <div id="hourly-content" class="panel-body"></div>
+      </div>
+
+      <div id="cost-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">◇</span> Cost Breakdown</div>
+          <div id="cost-total-badge" class="panel-badge cost-badge"></div>
+        </div>
+        <div id="cost-content" class="panel-body"></div>
+      </div>
+
+      <div id="workflow-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">⬡</span> Workflow</div>
+          <div id="workflow-badge" class="panel-badge"></div>
+        </div>
+        <div id="workflow-content" class="panel-body"></div>
       </div>
     </div>
   </main>
@@ -126,6 +95,22 @@
     </div>
     <div id="detail-content"></div>
   </aside>
+
+  <!-- Sessions Drawer (bottom, expandable) -->
+  <div id="sessions-drawer" class="sessions-drawer collapsed">
+    <div class="sessions-drawer-handle" id="sessions-drawer-toggle">
+      <div class="sessions-drawer-left">
+        <span class="panel-icon">▣</span>
+        <span class="sessions-drawer-title">Sessions</span>
+        <span id="sessions-count" class="panel-badge">0</span>
+      </div>
+      <div class="sessions-drawer-controls">
+        <span class="sessions-drawer-fs" id="sessions-fullscreen" title="Fullscreen">⛶</span>
+        <span class="sessions-drawer-chevron" id="sessions-chevron">▲</span>
+      </div>
+    </div>
+    <div id="sessions-content" class="sessions-drawer-body"></div>
+  </div>
 
   <!-- Tool Bar -->
   <div id="tool-bar" class="tool-bar"></div>

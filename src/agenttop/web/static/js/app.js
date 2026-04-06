@@ -93,6 +93,10 @@ const App = {
         SessionExplorer._sessions = App.data.sessions;
         SessionExplorer._applyFilters();
         SessionExplorer.render();
+        // Update drawer badge
+        const badge = document.getElementById('sessions-count');
+        const nonEmpty = App.data.sessions.filter(s => (s.message_count || 0) > 0 || (s.total_tokens || 0) > 0);
+        if (badge) badge.textContent = nonEmpty.length + ' sessions';
       } else {
         Panels.renderSessions(App.data.sessions);
       }

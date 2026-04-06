@@ -10,8 +10,45 @@ const SessionExplorer = {
   _analyzing: false,
   _lastShiftIdx: -1,
 
+  _drawerOpen: false,
+  _drawerFullscreen: false,
+
   async init() {
-    // Initial load handled by App.refresh() which sets _sessions
+    // Drawer toggle
+    const handle = document.getElementById('sessions-drawer-toggle');
+    const fsBtn = document.getElementById('sessions-fullscreen');
+    const drawer = document.getElementById('sessions-drawer');
+    if (handle) {
+      handle.addEventListener('click', (e) => {
+        if (e.target.closest('#sessions-fullscreen')) return;
+        SessionExplorer._toggleDrawer();
+      });
+    }
+    if (fsBtn) {
+      fsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!SessionExplorer._drawerOpen) SessionExplorer._toggleDrawer();
+        SessionExplorer._drawerFullscreen = !SessionExplorer._drawerFullscreen;
+        drawer.classList.toggle('fullscreen', SessionExplorer._drawerFullscreen);
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && SessionExplorer._drawerFullscreen) {
+        SessionExplorer._drawerFullscreen = false;
+        drawer.classList.remove('fullscreen');
+        e.stopPropagation();
+      }
+    });
+  },
+
+  _toggleDrawer() {
+    const drawer = document.getElementById('sessions-drawer');
+    if (!drawer) return;
+    SessionExplorer._drawerOpen = !SessionExplorer._drawerOpen;
+    drawer.classList.toggle('collapsed', !SessionExplorer._drawerOpen);
+    if (SessionExplorer._drawerOpen && SessionExplorer._sessions.length === 0) {
+      SessionExplorer.load();
+    }
   },
 
   async load() {
@@ -27,7 +64,10 @@ const SessionExplorer = {
   },
 
   _applyFilters() {
-    let list = [...SessionExplorer._sessions];
+    // Filter out empty/junk sessions (0 messages AND 0 tokens)
+    let list = SessionExplorer._sessions.filter(s =>
+      (s.message_count || 0) > 0 || (s.total_tokens || 0) > 0
+    );
     const f = SessionExplorer._filters;
 
     if (f.tool) list = list.filter(s => s.tool === f.tool);
