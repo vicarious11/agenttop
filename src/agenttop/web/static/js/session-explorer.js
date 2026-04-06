@@ -88,7 +88,6 @@ const SessionExplorer = {
   },
 
   _showAutoAnalysisResult(data) {
-    // Insert a summary bar at the top of the sessions list
     const container = document.querySelector('.se-container');
     if (!container) return;
 
@@ -96,46 +95,128 @@ const SessionExplorer = {
     if (existing) existing.remove();
 
     const score = data.score || 0;
-    const scoreColor = score >= 80 ? 'var(--success)' :
-                       score >= 60 ? 'var(--accent)' :
-                       score >= 40 ? 'var(--warning)' : 'var(--error)';
-
     const dp = data.developer_profile || {};
     const aps = (data.anti_patterns || []).slice(0, 3);
     const recs = (data.recommendations || []).slice(0, 3);
-    const strengths = (data.strengths || []).slice(0, 2);
+    const strengths = (data.strengths || []).slice(0, 3);
     const grades = data.grades || {};
+    const ps = data.profile_summary || {};
+    const cf = data.cost_forensics || {};
 
-    // Build grades row
-    const gradeNames = { cache_efficiency: 'Cache', session_hygiene: 'Hygiene',
-      prompt_quality: 'Prompts', tool_utilization: 'Tools', model_selection: 'Models' };
-    const gradeHtml = Object.entries(grades).map(([k, v]) => {
+    // Personality icons
+    const personalityIcons = {
+      power_user: '⚡', debug_warrior: '🛡️', explorer: '🧭',
+      methodical_builder: '🏗️', cautious_adopter: '🎯', efficiency_optimizer: '⚙️',
+    };
+    const icon = personalityIcons[dp.ai_personality] || '👤';
+
+    // Score ring color
+    const scoreColor = score >= 80 ? '#34d399' : score >= 60 ? '#2dd4bf' : score >= 40 ? '#fbbf24' : '#f87171';
+    const circumference = 2 * Math.PI * 28;
+    const offset = circumference - (score / 100) * circumference;
+
+    // Grade bars
+    const gradeConfig = {
+      session_hygiene: { label: 'Hygiene', icon: '🧹' },
+      prompt_quality: { label: 'Prompts', icon: '✍️' },
+      cost_efficiency: { label: 'Cost', icon: '💰' },
+      cache_efficiency: { label: 'Cache', icon: '⚡' },
+      tool_utilization: { label: 'Tools', icon: '🔧' },
+    };
+    const gradeToNum = { A: 100, B: 75, C: 50, D: 25 };
+    const gradeToColor = { A: '#34d399', B: '#2dd4bf', C: '#fbbf24', D: '#f87171' };
+
+    const gradeBars = Object.entries(grades).map(([k, v]) => {
+      const cfg = gradeConfig[k] || { label: k, icon: '📊' };
       const g = v.grade || '?';
-      const gc = { A: 'var(--success)', B: 'var(--accent)', C: 'var(--warning)', D: 'var(--error)' }[g] || 'var(--text-muted)';
-      return `<span style="color:${gc};font-weight:700;font-family:var(--font-mono);">${g}</span> <span style="color:var(--text-muted);font-size:10px;">${gradeNames[k] || k}</span>`;
-    }).join('&nbsp;&nbsp;');
+      const pct = gradeToNum[g] || 50;
+      const color = gradeToColor[g] || '#71717a';
+      return `
+        <div class="profile-stat">
+          <div class="profile-stat-header">
+            <span>${cfg.icon} ${cfg.label}</span>
+            <span style="color:${color};font-weight:700;">${g}</span>
+          </div>
+          <div class="profile-stat-bar"><div class="profile-stat-fill" style="width:${pct}%;background:${color}"></div></div>
+        </div>`;
+    }).join('');
+
+    // Traits from dp.traits
+    const traits = (dp.traits || []).slice(0, 4);
 
     const div = document.createElement('div');
     div.className = 'se-auto-analysis';
     div.innerHTML = `
-      <div class="se-analysis-header">
-        <div class="se-analysis-score" style="color:${scoreColor}">${score}</div>
-        <div class="se-analysis-info">
-          ${dp.title ? `<div style="font-weight:600;font-size:13px;">${SessionExplorer._escapeHtml(dp.title)}</div>` : ''}
-          ${dp.bio ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${SessionExplorer._escapeHtml(dp.bio)}</div>` : ''}
-          ${gradeHtml ? `<div style="margin-top:4px;">${gradeHtml}</div>` : ''}
+      <div class="profile-card">
+        <div class="profile-left">
+          <div class="profile-avatar">
+            <svg viewBox="0 0 64 64" width="64" height="64">
+              <circle cx="32" cy="32" r="28" fill="none" stroke="#27272a" stroke-width="4"/>
+              <circle cx="32" cy="32" r="28" fill="none" stroke="${scoreColor}" stroke-width="4"
+                stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
+                stroke-linecap="round" transform="rotate(-90 32 32)"/>
+            </svg>
+            <span class="profile-avatar-icon">${icon}</span>
+            <span class="profile-avatar-score" style="color:${scoreColor}">${score}</span>
+          </div>
+        </div>
+        <div class="profile-right">
+          <div class="profile-title">${SessionExplorer._escapeHtml(dp.title || 'Developer')}</div>
+          <div class="profile-bio">${SessionExplorer._escapeHtml(dp.bio || '')}</div>
+          ${traits.length > 0 ? `
+            <div class="profile-traits">
+              ${traits.map(t => `<span class="profile-trait">${SessionExplorer._escapeHtml(t)}</span>`).join('')}
+            </div>
+          ` : ''}
         </div>
       </div>
-      ${aps.length > 0 || recs.length > 0 || strengths.length > 0 ? `
-        <div class="se-analysis-details">
-          ${strengths.map(s => `<div class="se-analysis-tag se-tag-good">${SessionExplorer._escapeHtml(s.title || '')}</div>`).join('')}
-          ${aps.map(a => `<div class="se-analysis-tag se-tag-warn">${SessionExplorer._escapeHtml(a.pattern || '')} (${a.count || 0}x)</div>`).join('')}
-          ${recs.map(r => `<div class="se-analysis-tag se-tag-rec">${SessionExplorer._escapeHtml(r.title || '')}</div>`).join('')}
+
+      <div class="profile-stats">${gradeBars}</div>
+
+      ${strengths.length > 0 ? `
+        <div class="profile-section">
+          <div class="profile-section-title">Powers</div>
+          ${strengths.map(s => `
+            <div class="profile-power">
+              <span class="profile-power-icon">${s.icon || '✓'}</span>
+              <span class="profile-power-text"><strong>${SessionExplorer._escapeHtml(s.title || '')}</strong> — ${SessionExplorer._escapeHtml(s.detail || '')}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${aps.length > 0 ? `
+        <div class="profile-section">
+          <div class="profile-section-title">Weaknesses</div>
+          ${aps.map(a => `
+            <div class="profile-weakness">
+              <span>${SessionExplorer._escapeHtml(a.pattern || '')}</span>
+              <span class="profile-weakness-count">${a.count || 0}x</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${recs.length > 0 ? `
+        <div class="profile-section">
+          <div class="profile-section-title">Quests</div>
+          ${recs.map(r => {
+            const priority = (r.priority || 'medium');
+            const pColor = { high: '#f87171', medium: '#fbbf24', low: '#2dd4bf' }[priority] || '#71717a';
+            return `
+              <div class="profile-quest">
+                <span class="profile-quest-dot" style="background:${pColor}"></span>
+                <div>
+                  <div class="profile-quest-title">${SessionExplorer._escapeHtml(r.title || '')}</div>
+                  ${r.savings ? `<div class="profile-quest-reward">${SessionExplorer._escapeHtml(r.savings)}</div>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
       ` : ''}
     `;
 
-    // Insert after toolbar, before se-body
     const toolbar = container.querySelector('.se-toolbar');
     if (toolbar && toolbar.nextSibling) {
       container.insertBefore(div, toolbar.nextSibling);

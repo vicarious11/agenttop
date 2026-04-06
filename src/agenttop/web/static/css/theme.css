@@ -756,24 +756,35 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .wf-pattern-text { flex: 1; color: var(--text-secondary); }
 .wf-pattern-count { font-family: var(--font-mono); color: var(--text-dim); }
 
-/* ── Auto-analysis summary bar ── */
+/* ── Developer Profile Card ── */
 .se-auto-analysis {
-  padding: var(--sp-3); background: var(--bg-elevated);
+  padding: var(--sp-4); background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-default); flex-shrink: 0;
+  overflow-y: auto; max-height: 50%;
 }
-.se-analysis-header {
-  display: flex; align-items: center; gap: var(--sp-4);
-}
-.se-analysis-score {
-  font-size: 32px; font-weight: 800; font-family: var(--font-mono); line-height: 1; flex-shrink: 0;
-}
-.se-analysis-info { flex: 1; min-width: 0; }
-.se-analysis-details {
-  display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-2);
-}
-.se-analysis-tag {
-  font-size: 10px; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
-}
-.se-tag-good { background: var(--success-dim); color: var(--success); }
-.se-tag-warn { background: var(--warning-dim); color: var(--warning); }
-.se-tag-rec { background: var(--accent-dim); color: var(--accent); }
+.profile-card { display: flex; gap: var(--sp-4); align-items: center; margin-bottom: var(--sp-4); }
+.profile-left { flex-shrink: 0; }
+.profile-avatar { position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
+.profile-avatar svg { position: absolute; inset: 0; }
+.profile-avatar-icon { font-size: 20px; position: relative; z-index: 1; margin-bottom: 12px; }
+.profile-avatar-score { position: absolute; bottom: 0; font-size: 11px; font-weight: 800; font-family: var(--font-mono); z-index: 1; }
+.profile-right { flex: 1; min-width: 0; }
+.profile-title { font-size: 15px; font-weight: 700; color: var(--text-primary); line-height: 1.2; }
+.profile-bio { font-size: 11px; color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
+.profile-traits { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.profile-trait { font-size: 9px; padding: 2px 7px; border-radius: 8px; background: rgba(45,212,191,0.08); color: var(--accent); border: 1px solid rgba(45,212,191,0.15); }
+.profile-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; margin-bottom: var(--sp-3); }
+.profile-stat-header { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-bottom: 2px; }
+.profile-stat-bar { height: 3px; background: var(--bg-card); border-radius: 2px; overflow: hidden; }
+.profile-stat-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+.profile-section { margin-bottom: var(--sp-3); }
+.profile-section-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-bottom: 4px; }
+.profile-power { display: flex; gap: 6px; font-size: 11px; padding: 3px 0; color: var(--text-secondary); }
+.profile-power-icon { color: var(--success); flex-shrink: 0; }
+.profile-power-text strong { color: var(--text-primary); }
+.profile-weakness { display: flex; justify-content: space-between; font-size: 11px; padding: 4px 8px; margin-bottom: 2px; background: var(--warning-dim); border-radius: var(--radius-sm); color: var(--warning); }
+.profile-weakness-count { font-family: var(--font-mono); font-size: 10px; opacity: 0.7; }
+.profile-quest { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; padding: 3px 0; }
+.profile-quest-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.profile-quest-title { color: var(--text-primary); }
+.profile-quest-reward { font-size: 10px; color: var(--success); margin-top: 1px; }
