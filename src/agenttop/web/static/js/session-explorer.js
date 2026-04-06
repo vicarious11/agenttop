@@ -10,7 +10,7 @@ const SessionExplorer = {
   _analyzing: false,
   _lastShiftIdx: -1,
 
-  _drawerOpen: true,
+  _drawerOpen: false,
   _drawerFullscreen: false,
 
   async init() {

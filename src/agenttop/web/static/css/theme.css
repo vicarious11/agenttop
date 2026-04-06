@@ -136,14 +136,15 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 }
 .sessions-drawer.collapsed { max-height: 42px; overflow: hidden; }
 .sessions-drawer.fullscreen { max-height: calc(100vh - 84px); }
-.sessions-drawer:not(.collapsed):not(.fullscreen) { max-height: 50vh; }
+.sessions-drawer:not(.collapsed):not(.fullscreen) { max-height: 40vh; }
 
 .sessions-drawer-handle {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px var(--sp-4); cursor: pointer; flex-shrink: 0;
   border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
 }
-.sessions-drawer-handle:hover { background: var(--bg-hover); }
+.sessions-drawer-handle:hover { background: var(--bg-active); }
 .sessions-drawer-left { display: flex; align-items: center; gap: var(--sp-2); }
 .sessions-drawer-title { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
 .sessions-drawer-controls { display: flex; align-items: center; gap: var(--sp-3); }
