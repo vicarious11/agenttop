@@ -755,3 +755,25 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .wf-pattern-icon { font-weight: 700; }
 .wf-pattern-text { flex: 1; color: var(--text-secondary); }
 .wf-pattern-count { font-family: var(--font-mono); color: var(--text-dim); }
+
+/* ── Auto-analysis summary bar ── */
+.se-auto-analysis {
+  padding: var(--sp-3); background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default); flex-shrink: 0;
+}
+.se-analysis-header {
+  display: flex; align-items: center; gap: var(--sp-4);
+}
+.se-analysis-score {
+  font-size: 32px; font-weight: 800; font-family: var(--font-mono); line-height: 1; flex-shrink: 0;
+}
+.se-analysis-info { flex: 1; min-width: 0; }
+.se-analysis-details {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-2);
+}
+.se-analysis-tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+}
+.se-tag-good { background: var(--success-dim); color: var(--success); }
+.se-tag-warn { background: var(--warning-dim); color: var(--warning); }
+.se-tag-rec { background: var(--accent-dim); color: var(--accent); }

@@ -41,6 +41,8 @@ const SessionExplorer = {
     });
   },
 
+  _autoAnalyzeDone: false,
+
   _toggleDrawer() {
     const drawer = document.getElementById('sessions-drawer');
     if (!drawer) return;
@@ -48,6 +50,97 @@ const SessionExplorer = {
     drawer.classList.toggle('collapsed', !SessionExplorer._drawerOpen);
     if (SessionExplorer._drawerOpen && SessionExplorer._sessions.length === 0) {
       SessionExplorer.load();
+    }
+    // Auto-analyze last 10 sessions on first open
+    if (SessionExplorer._drawerOpen && !SessionExplorer._autoAnalyzeDone) {
+      SessionExplorer._autoAnalyze();
+    }
+  },
+
+  async _autoAnalyze() {
+    // Wait for sessions to load
+    if (SessionExplorer._filtered.length === 0) {
+      await SessionExplorer.load();
+    }
+    const top10 = SessionExplorer._filtered.slice(0, 10);
+    if (top10.length === 0) return;
+
+    SessionExplorer._autoAnalyzeDone = true;
+    const ids = top10.map(s => s.id);
+
+    // Show loading state in the drawer title
+    const title = document.querySelector('.sessions-drawer-title');
+    if (title) title.textContent = 'Sessions — analyzing last 10...';
+
+    try {
+      const res = await fetch('/api/analyze-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_ids: ids }),
+      });
+      const data = await res.json();
+      if (title) title.textContent = `Sessions — Score: ${data.score || '?'}/100`;
+      SessionExplorer._showAutoAnalysisResult(data);
+    } catch (e) {
+      if (title) title.textContent = 'Sessions';
+      console.warn('Auto-analysis failed:', e);
+    }
+  },
+
+  _showAutoAnalysisResult(data) {
+    // Insert a summary bar at the top of the sessions list
+    const container = document.querySelector('.se-container');
+    if (!container) return;
+
+    const existing = container.querySelector('.se-auto-analysis');
+    if (existing) existing.remove();
+
+    const score = data.score || 0;
+    const scoreColor = score >= 80 ? 'var(--success)' :
+                       score >= 60 ? 'var(--accent)' :
+                       score >= 40 ? 'var(--warning)' : 'var(--error)';
+
+    const dp = data.developer_profile || {};
+    const aps = (data.anti_patterns || []).slice(0, 3);
+    const recs = (data.recommendations || []).slice(0, 3);
+    const strengths = (data.strengths || []).slice(0, 2);
+    const grades = data.grades || {};
+
+    // Build grades row
+    const gradeNames = { cache_efficiency: 'Cache', session_hygiene: 'Hygiene',
+      prompt_quality: 'Prompts', tool_utilization: 'Tools', model_selection: 'Models' };
+    const gradeHtml = Object.entries(grades).map(([k, v]) => {
+      const g = v.grade || '?';
+      const gc = { A: 'var(--success)', B: 'var(--accent)', C: 'var(--warning)', D: 'var(--error)' }[g] || 'var(--text-muted)';
+      return `<span style="color:${gc};font-weight:700;font-family:var(--font-mono);">${g}</span> <span style="color:var(--text-muted);font-size:10px;">${gradeNames[k] || k}</span>`;
+    }).join('&nbsp;&nbsp;');
+
+    const div = document.createElement('div');
+    div.className = 'se-auto-analysis';
+    div.innerHTML = `
+      <div class="se-analysis-header">
+        <div class="se-analysis-score" style="color:${scoreColor}">${score}</div>
+        <div class="se-analysis-info">
+          ${dp.title ? `<div style="font-weight:600;font-size:13px;">${SessionExplorer._escapeHtml(dp.title)}</div>` : ''}
+          ${dp.bio ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${SessionExplorer._escapeHtml(dp.bio)}</div>` : ''}
+          ${gradeHtml ? `<div style="margin-top:4px;">${gradeHtml}</div>` : ''}
+        </div>
+      </div>
+      ${aps.length > 0 || recs.length > 0 || strengths.length > 0 ? `
+        <div class="se-analysis-details">
+          ${strengths.map(s => `<div class="se-analysis-tag se-tag-good">${SessionExplorer._escapeHtml(s.title || '')}</div>`).join('')}
+          ${aps.map(a => `<div class="se-analysis-tag se-tag-warn">${SessionExplorer._escapeHtml(a.pattern || '')} (${a.count || 0}x)</div>`).join('')}
+          ${recs.map(r => `<div class="se-analysis-tag se-tag-rec">${SessionExplorer._escapeHtml(r.title || '')}</div>`).join('')}
+        </div>
+      ` : ''}
+    `;
+
+    // Insert after toolbar, before se-body
+    const toolbar = container.querySelector('.se-toolbar');
+    if (toolbar && toolbar.nextSibling) {
+      container.insertBefore(div, toolbar.nextSibling);
+    } else {
+      container.appendChild(div);
     }
   },
 
