@@ -266,25 +266,48 @@ const SessionExplorer = {
     if (!el) return;
     this._applyFilters();
     const selCount = this._selected.size;
+    const totalCost = [...this._selected].reduce((sum, id) => {
+      const s = this._filtered.find(x => x.id === id);
+      return sum + (s ? (s.estimated_cost_usd || 0) : 0);
+    }, 0);
 
     el.innerHTML = `
       <div class="se-page">
         <div class="se-page-header">
           <h2 class="se-page-title">Analyze</h2>
-          <span class="se-page-count">${selCount > 0 ? selCount + ' selected' : 'Select sessions'}</span>
+          <span class="se-page-count">${selCount > 0 ? selCount + ' of ' + this._filtered.length + ' selected' : this._filtered.length + ' sessions'}</span>
+          ${selCount > 0 ? `<span class="se-page-count">${App.formatCost(totalCost)} total</span>` : ''}
         </div>
         <div class="se-analyze-layout">
           <div class="se-analyze-sidebar">
-            <div class="se-analyze-toolbar">
-              <button class="se-analyze-all-btn" id="se-select-recent">Select Last 10</button>
-              <button class="se-analyze-btn ${selCount > 0 ? 'active' : ''}" id="se-run-analyze" ${selCount === 0 ? 'disabled' : ''}>
-                ${this._analyzing ? 'Analyzing...' : 'Analyze' + (selCount > 0 ? ' (' + selCount + ')' : '')}
+            <div class="se-analyze-actions">
+              <div class="se-action-group">
+                <span class="se-action-label">Quick select</span>
+                <div class="se-action-btns">
+                  <button class="se-action-btn" id="se-select-all" title="Select all sessions">All</button>
+                  <button class="se-action-btn" id="se-select-10" title="Select 10 most recent sessions">Last 10</button>
+                  <button class="se-action-btn" id="se-select-costly" title="Select top 10 most expensive sessions">Top Cost</button>
+                  <button class="se-action-btn" id="se-select-none" title="Clear selection"${selCount === 0 ? ' disabled' : ''}>Clear</button>
+                </div>
+              </div>
+              <button class="se-run-btn ${selCount > 0 ? 'active' : ''}" id="se-run-analyze" ${selCount === 0 ? 'disabled' : ''}
+                title="${selCount > 0 ? 'Run LLM analysis on ' + selCount + ' sessions' : 'Select sessions first'}">
+                ${this._analyzing
+                  ? '<span class="se-spinner"></span> Analyzing\u2026'
+                  : selCount > 0 ? 'Analyze ' + selCount + ' sessions' : 'Analyze'}
               </button>
             </div>
             <div class="se-analyze-list">${this._renderAnalyzeList()}</div>
           </div>
           <div class="se-analyze-result">
-            ${this._analysisResult ? this._renderProfile(this._analysisResult) : '<div class="se-detail-empty">Select sessions and click Analyze to generate your developer profile</div>'}
+            ${this._analysisResult ? this._renderProfile(this._analysisResult) : `
+              <div class="se-empty-state">
+                <div class="se-empty-icon">&#x2694;&#xFE0F;</div>
+                <div class="se-empty-title">Developer Profile</div>
+                <div class="se-empty-desc">Select sessions from the left panel and click <strong>Analyze</strong> to generate your AI-powered developer profile with grades, strengths, and recommendations.</div>
+                <div class="se-empty-hint">Tip: Use <strong>Top Cost</strong> to find your most expensive sessions</div>
+              </div>
+            `}
           </div>
         </div>
       </div>
@@ -294,24 +317,33 @@ const SessionExplorer = {
   },
 
   _renderAnalyzeList() {
+    if (this._filtered.length === 0) {
+      return '<div class="se-detail-empty">No sessions available</div>';
+    }
     let html = '';
-    this._filtered.slice(0, 50).forEach(s => {
+    this._filtered.forEach(s => {
       const proj = s.project ? s.project.split('/').pop() : 'unknown';
       const name = proj.length > 20 ? proj.slice(0, 20) + '\u2026' : proj;
       const checked = this._selected.has(s.id);
       const cost = s.estimated_cost_usd > 0 ? App.formatCost(s.estimated_cost_usd) : '';
+      const dur = this._dur(s);
+      const ago = this._ago(s);
+      const msgs = s.message_count || 0;
+      const titleParts = [name, this._toolName(s.tool), msgs + ' messages'];
+      if (dur) titleParts.push(dur);
+      if (cost) titleParts.push(cost);
 
       html += `
-        <label class="se-analyze-row ${checked ? 'checked' : ''}" data-id="${this._esc(s.id)}">
+        <label class="se-analyze-row ${checked ? 'checked' : ''}" data-id="${this._esc(s.id)}" title="${titleParts.join(' \u2014 ')}">
           <input type="checkbox" ${checked ? 'checked' : ''}>
           <span class="se-dot" style="background:${this._toolColor(s.tool)}"></span>
-          <span class="se-analyze-name">${this._esc(name)}</span>
-          <span class="se-analyze-meta">${this._toolName(s.tool)} \u00b7 ${(s.message_count || 0)} msgs${cost ? ' \u00b7 ' + cost : ''}</span>
+          <div class="se-analyze-info">
+            <span class="se-analyze-name">${this._esc(name)}</span>
+            <span class="se-analyze-meta">${this._toolName(s.tool)} \u00b7 ${msgs} msgs${dur ? ' \u00b7 ' + dur : ''}${cost ? ' \u00b7 ' + cost : ''}</span>
+          </div>
+          <span class="se-analyze-ago">${ago}</span>
         </label>`;
     });
-    if (this._filtered.length === 0) {
-      html = '<div class="se-detail-empty">No sessions available</div>';
-    }
     return html;
   },
 
@@ -324,19 +356,29 @@ const SessionExplorer = {
       });
     });
 
-    const selBtn = el.querySelector('#se-select-recent');
-    if (selBtn) {
-      selBtn.addEventListener('click', () => {
-        this._selected.clear();
-        this._filtered.slice(0, 10).forEach(s => this._selected.add(s.id));
-        this.renderAnalyze();
-      });
-    }
+    const bind = (id, fn) => { const b = el.querySelector('#' + id); if (b) b.addEventListener('click', fn); };
 
-    const runBtn = el.querySelector('#se-run-analyze');
-    if (runBtn) {
-      runBtn.addEventListener('click', () => this._runAnalysis());
-    }
+    bind('se-select-all', () => {
+      this._selected = new Set(this._filtered.map(s => s.id));
+      this.renderAnalyze();
+    });
+    bind('se-select-10', () => {
+      this._selected.clear();
+      this._filtered.slice(0, 10).forEach(s => this._selected.add(s.id));
+      this.renderAnalyze();
+    });
+    bind('se-select-costly', () => {
+      this._selected.clear();
+      [...this._filtered].sort((a, b) => (b.estimated_cost_usd || 0) - (a.estimated_cost_usd || 0))
+        .slice(0, 10).forEach(s => this._selected.add(s.id));
+      this.renderAnalyze();
+    });
+    bind('se-select-none', () => {
+      this._selected.clear();
+      this.renderAnalyze();
+    });
+
+    bind('se-run-analyze', () => this._runAnalysis());
   },
 
   async _runAnalysis() {
