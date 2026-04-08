@@ -4,6 +4,8 @@ class Agenttop < Formula
   desc "htop for AI coding agents — monitor Claude Code, Cursor, Kiro, Copilot and more"
   homepage "https://github.com/vicarious11/agenttop"
   url "https://github.com/vicarious11/agenttop/archive/refs/tags/v0.1.0.tar.gz"
+  # SHA256 generated after release: shasum -a 256 agenttop-<version>.tar.gz
+  # CI workflow (.github/workflows/release.yml) auto-updates this on tag push
   sha256 "PLACEHOLDER_SHA256"
   license "Apache-2.0"
   head "https://github.com/vicarious11/agenttop.git", branch: "main"

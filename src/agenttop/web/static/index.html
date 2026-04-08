@@ -42,8 +42,23 @@
     </div>
   </header>
 
-  <!-- Main: Graph left, Panels right -->
-  <main id="main">
+  <!-- Tab Bar -->
+  <nav id="tab-bar" class="tab-bar">
+    <button class="tab-btn active" data-tab="overview">
+      <span class="tab-icon">◈</span> Overview
+    </button>
+    <button class="tab-btn" data-tab="sessions">
+      <span class="tab-icon">▣</span> Sessions
+      <span class="tab-badge" id="tab-badge-sessions"></span>
+    </button>
+    <button class="tab-btn" data-tab="analyze">
+      <span class="tab-icon">⚡</span> Analyze
+      <span class="tab-badge" id="tab-badge-analyze"></span>
+    </button>
+  </nav>
+
+  <!-- Tab: Overview (graph + panels) -->
+  <main id="main" class="tab-pane active" data-pane="overview">
     <div id="graph-container" class="glass-panel">
       <div class="panel-header">
         <div class="panel-title"><span class="panel-icon">◈</span> Knowledge Graph</div>
@@ -87,6 +102,12 @@
     </div>
   </main>
 
+  <!-- Tab: Sessions (full-page browser) -->
+  <div id="pane-sessions" class="tab-pane" data-pane="sessions"></div>
+
+  <!-- Tab: Analyze (full-page analysis) -->
+  <div id="pane-analyze" class="tab-pane" data-pane="analyze"></div>
+
   <!-- Node Detail Overlay -->
   <aside id="node-detail" class="glass-panel detail-overlay hidden">
     <div class="panel-header">
@@ -95,22 +116,6 @@
     </div>
     <div id="detail-content"></div>
   </aside>
-
-  <!-- Sessions Drawer (bottom, expandable) -->
-  <div id="sessions-drawer" class="sessions-drawer collapsed">
-    <div class="sessions-drawer-handle" id="sessions-drawer-toggle">
-      <div class="sessions-drawer-left">
-        <span class="panel-icon">▣</span>
-        <span class="sessions-drawer-title">Sessions</span>
-        <span id="sessions-count" class="panel-badge">0</span>
-      </div>
-      <div class="sessions-drawer-controls">
-        <span class="sessions-drawer-fs" id="sessions-fullscreen" title="Fullscreen">⛶</span>
-        <span class="sessions-drawer-chevron" id="sessions-chevron">▲</span>
-      </div>
-    </div>
-    <div id="sessions-content" class="sessions-drawer-body"></div>
-  </div>
 
   <!-- Tool Bar -->
   <div id="tool-bar" class="tool-bar"></div>

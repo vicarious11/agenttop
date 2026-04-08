@@ -15,6 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+import re
+
 from agenttop.collectors.base import BaseCollector
 from agenttop.collectors.claude import ClaudeCodeCollector
 from agenttop.collectors.codex import CodexCollector
@@ -99,8 +101,8 @@ def api_stats(days: int = 0) -> JSONResponse:
     return JSONResponse(_get_all_stats(days))
 
 
-@app.get("/api/sessions")
-def api_sessions(days: int = 7) -> JSONResponse:
+def _collect_all_sessions(days: int = 7) -> list:
+    """Collect sessions from all available collectors within time window."""
     _init()
     from datetime import datetime, timedelta
 
@@ -111,21 +113,40 @@ def api_sessions(days: int = 7) -> JSONResponse:
             continue
         for s in collector.collect_sessions():
             if s.start_time >= cutoff:
-                sessions.append(s.model_dump(mode="json"))
-    sessions.sort(key=lambda x: x["start_time"], reverse=True)
-    return JSONResponse(sessions[:200])
+                sessions.append(s)
+    return sessions
+
+
+def _build_session_index() -> dict[str, Any]:
+    """Build a session ID -> Session mapping for O(1) lookups."""
+    index: dict[str, Any] = {}
+    for _, collector in _collectors:
+        if not collector.is_available():
+            continue
+        for s in collector.collect_sessions():
+            index[s.id] = s
+    return index
+
+
+@app.get("/api/sessions")
+def api_sessions(days: int = 7) -> JSONResponse:
+    sessions = _collect_all_sessions(days)
+    result = [s.model_dump(mode="json") for s in sessions]
+    result.sort(key=lambda x: x["start_time"], reverse=True)
+    return JSONResponse(result)
 
 
 @app.get("/api/sessions/{session_id}")
 def api_session_detail(session_id: str) -> JSONResponse:
     """Get full session detail including prompts."""
     _init()
-    for _, collector in _collectors:
-        if not collector.is_available():
-            continue
-        for s in collector.collect_sessions():
-            if s.id == session_id:
-                return JSONResponse(s.model_dump(mode="json"))
+    # Validate session_id format
+    if not session_id or len(session_id) > 128 or not re.match(r"^[\w\-]+$", session_id):
+        return JSONResponse({"error": "Invalid session ID"}, status_code=400)
+    index = _build_session_index()
+    session = index.get(session_id)
+    if session:
+        return JSONResponse(session.model_dump(mode="json"))
     return JSONResponse({"error": "Session not found"}, status_code=404)
 
 
@@ -190,17 +211,7 @@ def api_budget(days: int = 0) -> JSONResponse:
 @app.get("/api/workflow/chains")
 def api_workflow_chains(days: int = 7, gap_minutes: int = 30) -> JSONResponse:
     """Get workflow chains - correlated sessions across tools."""
-    _init()
-    from datetime import datetime, timedelta
-
-    cutoff = datetime.now() - timedelta(days=days) if days > 0 else datetime(2000, 1, 1)
-    sessions = []
-    for _, collector in _collectors:
-        if not collector.is_available():
-            continue
-        for s in collector.collect_sessions():
-            if s.start_time >= cutoff:
-                sessions.append(s)
+    sessions = _collect_all_sessions(days)
 
     if not sessions:
         return JSONResponse({"chains": [], "total": 0})

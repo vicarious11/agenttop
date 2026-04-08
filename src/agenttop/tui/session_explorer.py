@@ -353,7 +353,7 @@ class SessionExplorerView(Static):
     def _render_table(self) -> None:
         table = self.query_one("#session-table", DataTable)
         table.clear()
-        for s in self._filtered[:200]:
+        for s in self._filtered:
             tool = TOOL_DISPLAY.get(s.tool.value, s.tool.value)
             project = s.project.rstrip("/").rsplit("/", 1)[-1] if s.project else "(unknown)"
             project = (project[:25] + "…") if len(project) > 25 else project
@@ -364,7 +364,7 @@ class SessionExplorerView(Static):
                 human_tokens(s.total_tokens), human_cost(s.estimated_cost_usd),
                 key=s.id,
             )
-        total, shown, sel = len(self._sessions), min(len(self._filtered), 200), len(self._selected)
+        total, shown, sel = len(self._sessions), len(self._filtered), len(self._selected)
         status = f"{shown}/{total} sessions" + (f" | {sel} selected" if sel else "")
         try:
             self.query_one("#status-bar", Label).update(status)
@@ -411,7 +411,7 @@ class SessionExplorerView(Static):
         if len(self._selected) == len(self._filtered):
             self._selected.clear()
         else:
-            self._selected = {s.id for s in self._filtered[:200]}
+            self._selected = {s.id for s in self._filtered}
         self._render_table()
         self._update_btn()
 
