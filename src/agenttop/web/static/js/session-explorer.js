@@ -402,51 +402,183 @@ const SessionExplorer = {
     this.renderAnalyze();
   },
 
+  _scoreColor(n) { return n >= 80 ? '#34d399' : n >= 60 ? '#2dd4bf' : n >= 40 ? '#fbbf24' : '#f87171'; },
+
   _renderProfile(data) {
     const score = data.score || 0;
     const dp = data.developer_profile || {};
     const grades = data.grades || {};
-    const strengths = (data.strengths || []).slice(0, 3);
-    const aps = (data.anti_patterns || []).slice(0, 3);
-    const recs = (data.recommendations || []).slice(0, 3);
+    const strengths = data.strengths || [];
+    const aps = data.anti_patterns || [];
+    const recs = data.recommendations || [];
+    const costF = data.cost_forensics || {};
+    const summary = data.profile_summary || {};
+    const workflow = data.workflow || {};
+    const projectInsights = data.project_insights || [];
 
     const icons = { power_user: '\u26a1', debug_warrior: '\ud83d\udee1\ufe0f', explorer: '\ud83e\udded', methodical_builder: '\ud83c\udfd7\ufe0f', cautious_adopter: '\ud83c\udfaf', efficiency_optimizer: '\u2699\ufe0f' };
     const icon = icons[dp.ai_personality] || '\ud83d\udc64';
-    const scoreColor = score >= 80 ? '#34d399' : score >= 60 ? '#2dd4bf' : score >= 40 ? '#fbbf24' : '#f87171';
+    const scoreColor = this._scoreColor(score);
     const circ = 2 * Math.PI * 28;
     const off = circ - (score / 100) * circ;
 
-    const gradeMap = { session_hygiene: '\ud83e\uddf9 Hygiene', prompt_quality: '\u270d\ufe0f Prompts', cost_efficiency: '\ud83d\udcb0 Cost', cache_efficiency: '\u26a1 Cache', tool_utilization: '\ud83d\udd27 Tools' };
+    const gradeMap = { session_hygiene: 'Hygiene', prompt_quality: 'Prompts', cost_efficiency: 'Cost', cache_efficiency: 'Cache', tool_utilization: 'Tools' };
     const gNum = { A: 100, B: 75, C: 50, D: 25 };
     const gCol = { A: '#34d399', B: '#2dd4bf', C: '#fbbf24', D: '#f87171' };
 
-    return `
-      <div class="profile-card">
-        <div class="profile-avatar">
-          <svg viewBox="0 0 64 64" width="72" height="72">
-            <circle cx="32" cy="32" r="28" fill="none" stroke="#27272a" stroke-width="4"/>
-            <circle cx="32" cy="32" r="28" fill="none" stroke="${scoreColor}" stroke-width="4"
-              stroke-dasharray="${circ}" stroke-dashoffset="${off}" stroke-linecap="round" transform="rotate(-90 32 32)"/>
-          </svg>
-          <span class="profile-avatar-icon">${icon}</span>
-          <span class="profile-avatar-score" style="color:${scoreColor}">${score}</span>
+    let html = '';
+
+    // ── Profile Card ──
+    html += `
+      <div class="rpt-header">
+        <div class="profile-card">
+          <div class="profile-avatar">
+            <svg viewBox="0 0 64 64" width="72" height="72">
+              <circle cx="32" cy="32" r="28" fill="none" stroke="#27272a" stroke-width="4"/>
+              <circle cx="32" cy="32" r="28" fill="none" stroke="${scoreColor}" stroke-width="4"
+                stroke-dasharray="${circ}" stroke-dashoffset="${off}" stroke-linecap="round" transform="rotate(-90 32 32)"/>
+            </svg>
+            <span class="profile-avatar-icon">${icon}</span>
+            <span class="profile-avatar-score" style="color:${scoreColor}">${score}</span>
+          </div>
+          <div class="profile-right">
+            <div class="profile-title">${this._esc(dp.title || 'Developer')}</div>
+            <div class="profile-bio">${this._esc(dp.bio || '')}</div>
+            ${(dp.traits || []).length > 0 ? `<div class="profile-traits">${dp.traits.slice(0, 5).map(t => `<span class="profile-trait">${this._esc(t)}</span>`).join('')}</div>` : ''}
+          </div>
         </div>
-        <div class="profile-right">
-          <div class="profile-title">${this._esc(dp.title || 'Developer')}</div>
-          <div class="profile-bio">${this._esc(dp.bio || '')}</div>
-          ${(dp.traits || []).length > 0 ? `<div class="profile-traits">${dp.traits.slice(0, 4).map(t => `<span class="profile-trait">${this._esc(t)}</span>`).join('')}</div>` : ''}
-        </div>
-      </div>
-      <div class="profile-stats">
-        ${Object.entries(grades).map(([k, v]) => {
-          const g = v.grade || '?';
-          return `<div class="profile-stat"><div class="profile-stat-header"><span>${gradeMap[k] || k}</span><span style="color:${gCol[g] || '#71717a'};font-weight:700">${g}</span></div><div class="profile-stat-bar"><div class="profile-stat-fill" style="width:${gNum[g] || 50}%;background:${gCol[g] || '#71717a'}"></div></div></div>`;
-        }).join('')}
-      </div>
-      ${strengths.length > 0 ? `<div class="profile-section"><div class="profile-section-title">Powers</div>${strengths.map(s => `<div class="profile-power"><span class="profile-power-icon">${s.icon || '\u2713'}</span><span><strong>${this._esc(s.title || '')}</strong> \u2014 ${this._esc(s.detail || '')}</span></div>`).join('')}</div>` : ''}
-      ${aps.length > 0 ? `<div class="profile-section"><div class="profile-section-title">Weaknesses</div>${aps.map(a => `<div class="profile-weakness"><span>${this._esc(a.pattern || '')}</span><span class="profile-weakness-count">${a.count || 0}x</span></div>`).join('')}</div>` : ''}
-      ${recs.length > 0 ? `<div class="profile-section"><div class="profile-section-title">Quests</div>${recs.map(r => `<div class="profile-quest"><span class="profile-quest-dot" style="background:${{ high: '#f87171', medium: '#fbbf24', low: '#2dd4bf' }[r.priority] || '#71717a'}"></span><div><div class="profile-quest-title">${this._esc(r.title || '')}</div>${r.savings ? `<div class="profile-quest-reward">${this._esc(r.savings)}</div>` : ''}</div></div>`).join('')}</div>` : ''}
-    `;
+      </div>`;
+
+    // ── Summary Stats Bar ──
+    html += `
+      <div class="rpt-summary">
+        <div class="rpt-stat"><div class="rpt-stat-value">${App.formatNum(summary.total_tokens || 0)}</div><div class="rpt-stat-label">Tokens</div></div>
+        <div class="rpt-stat"><div class="rpt-stat-value">${App.formatCost(summary.total_cost || 0)}</div><div class="rpt-stat-label">Cost</div></div>
+        <div class="rpt-stat"><div class="rpt-stat-value">${summary.session_count || 0}</div><div class="rpt-stat-label">Sessions</div></div>
+        <div class="rpt-stat"><div class="rpt-stat-value">${Math.round(summary.avg_messages || 0)}</div><div class="rpt-stat-label">Avg Msgs</div></div>
+        <div class="rpt-stat"><div class="rpt-stat-value">${Math.round((summary.cache_hit_rate || 0) * 100)}%</div><div class="rpt-stat-label">Cache Hit</div></div>
+        <div class="rpt-stat"><div class="rpt-stat-value">${summary.active_tools || 0}</div><div class="rpt-stat-label">Tools</div></div>
+      </div>`;
+
+    // ── Grades ──
+    html += `<div class="rpt-section"><div class="rpt-section-title">Performance Grades</div><div class="rpt-grades">`;
+    Object.entries(grades).forEach(([k, v]) => {
+      const g = v.grade || '?';
+      const col = gCol[g] || '#71717a';
+      const detail = v.detail || v.reason || '';
+      html += `
+        <div class="rpt-grade-card" title="${this._esc(detail)}">
+          <div class="rpt-grade-letter" style="color:${col}">${g}</div>
+          <div class="rpt-grade-bar"><div class="rpt-grade-fill" style="width:${gNum[g] || 50}%;background:${col}"></div></div>
+          <div class="rpt-grade-label">${gradeMap[k] || k}</div>
+        </div>`;
+    });
+    html += '</div></div>';
+
+    // ── Cost Forensics ──
+    if (costF.total_cost > 0) {
+      const wasteCol = costF.waste_pct > 20 ? '#f87171' : costF.waste_pct > 10 ? '#fbbf24' : '#34d399';
+      html += `<div class="rpt-section"><div class="rpt-section-title">Cost Forensics</div>`;
+      html += `
+        <div class="rpt-cost-overview">
+          <div class="rpt-cost-stat"><span class="rpt-cost-val">$${costF.total_cost.toFixed(2)}</span><span class="rpt-cost-lbl">Total</span></div>
+          <div class="rpt-cost-stat"><span class="rpt-cost-val" style="color:${wasteCol}">$${(costF.estimated_waste || 0).toFixed(2)}</span><span class="rpt-cost-lbl">Est. Waste</span></div>
+          <div class="rpt-cost-stat"><span class="rpt-cost-val" style="color:${wasteCol}">${costF.waste_pct || 0}%</span><span class="rpt-cost-lbl">Waste Rate</span></div>
+        </div>`;
+
+      // Cost by project
+      const byProj = (costF.cost_by_project || []).slice(0, 5);
+      if (byProj.length > 0) {
+        const maxCost = byProj[0].cost || 1;
+        html += '<div class="rpt-subsection"><div class="rpt-sub-title">By Project</div>';
+        byProj.forEach(p => {
+          const pct = Math.round(p.cost / maxCost * 100);
+          html += `
+            <div class="rpt-bar-row">
+              <span class="rpt-bar-label">${this._esc(p.project)}</span>
+              <div class="rpt-bar-track"><div class="rpt-bar-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+              <span class="rpt-bar-value">$${p.cost.toFixed(2)}</span>
+            </div>`;
+        });
+        html += '</div>';
+      }
+
+      // Cost by model
+      const byModel = (costF.cost_by_model || []).slice(0, 5);
+      if (byModel.length > 0) {
+        const maxM = byModel[0].cost || 1;
+        html += '<div class="rpt-subsection"><div class="rpt-sub-title">By Model</div>';
+        byModel.forEach(m => {
+          const pct = Math.round(m.cost / maxM * 100);
+          html += `
+            <div class="rpt-bar-row">
+              <span class="rpt-bar-label">${this._esc(m.model)}</span>
+              <div class="rpt-bar-track"><div class="rpt-bar-fill" style="width:${pct}%;background:var(--tool-claude)"></div></div>
+              <span class="rpt-bar-value">$${m.cost.toFixed(2)}</span>
+            </div>`;
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    // ── Strengths & Anti-patterns side by side ──
+    html += '<div class="rpt-two-col">';
+    if (strengths.length > 0) {
+      html += '<div class="rpt-section"><div class="rpt-section-title">Strengths</div>';
+      strengths.forEach(s => {
+        html += `<div class="profile-power"><span class="profile-power-icon">${s.icon || '\u2713'}</span><span><strong>${this._esc(s.title || '')}</strong> \u2014 ${this._esc(s.detail || '')}</span></div>`;
+      });
+      html += '</div>';
+    }
+    if (aps.length > 0) {
+      html += '<div class="rpt-section"><div class="rpt-section-title">Anti-Patterns</div>';
+      aps.forEach(a => {
+        html += `<div class="profile-weakness"><span>${this._esc(a.pattern || '')}</span><span class="profile-weakness-count">${a.count || 0}x</span></div>`;
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // ── Recommendations ──
+    if (recs.length > 0) {
+      html += '<div class="rpt-section"><div class="rpt-section-title">Recommendations</div>';
+      recs.forEach(r => {
+        const prioCol = { high: '#f87171', medium: '#fbbf24', low: '#2dd4bf' }[r.priority] || '#71717a';
+        html += `
+          <div class="rpt-rec">
+            <span class="rpt-rec-prio" style="background:${prioCol}" title="${r.priority || ''} priority"></span>
+            <div class="rpt-rec-body">
+              <div class="rpt-rec-title">${this._esc(r.title || '')}</div>
+              ${r.description ? `<div class="rpt-rec-desc">${this._esc(r.description)}</div>` : ''}
+              ${r.savings ? `<div class="rpt-rec-savings">${this._esc(r.savings)}</div>` : ''}
+            </div>
+          </div>`;
+      });
+      html += '</div>';
+    }
+
+    // ── Project Insights ──
+    if (projectInsights.length > 0) {
+      html += '<div class="rpt-section"><div class="rpt-section-title">Project Insights</div>';
+      projectInsights.forEach(pi => {
+        html += `
+          <div class="rpt-insight">
+            <div class="rpt-insight-name">${this._esc(pi.project || '')}</div>
+            <div class="rpt-insight-text">${this._esc(pi.insight || pi.observation || '')}</div>
+          </div>`;
+      });
+      html += '</div>';
+    }
+
+    // ── Workflow ──
+    if (workflow.summary || workflow.assessment) {
+      html += `<div class="rpt-section"><div class="rpt-section-title">Workflow Assessment</div>
+        <div class="rpt-workflow-text">${this._esc(workflow.summary || workflow.assessment || '')}</div>
+      </div>`;
+    }
+
+    return html;
   },
 };
 

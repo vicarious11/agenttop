@@ -838,6 +838,75 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
   background: var(--bg-elevated); padding: 6px 12px; border-radius: var(--radius-md);
 }
 
+/* ══════════════════════════════════════════════════════
+   ANALYSIS REPORT
+   ══════════════════════════════════════════════════════ */
+
+.rpt-header { margin-bottom: var(--sp-4); }
+.rpt-summary {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--sp-2);
+  padding: var(--sp-3); background: var(--bg-elevated); border-radius: var(--radius-lg);
+  margin-bottom: var(--sp-4);
+}
+.rpt-stat { text-align: center; }
+.rpt-stat-value { font-size: var(--text-md); font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); }
+.rpt-stat-label { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+.rpt-section { margin-bottom: var(--sp-4); }
+.rpt-section-title {
+  font-size: var(--text-xs); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: var(--sp-2);
+  padding-bottom: 4px; border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── Grades ── */
+.rpt-grades { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--sp-2); }
+.rpt-grade-card {
+  text-align: center; padding: var(--sp-2); background: var(--bg-elevated);
+  border-radius: var(--radius-md); cursor: default;
+}
+.rpt-grade-card:hover { background: var(--bg-active); }
+.rpt-grade-letter { font-size: 24px; font-weight: 800; font-family: var(--font-mono); }
+.rpt-grade-bar { height: 3px; background: var(--bg-card); border-radius: 2px; overflow: hidden; margin: 4px 0; }
+.rpt-grade-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+.rpt-grade-label { font-size: 10px; color: var(--text-muted); }
+
+/* ── Cost Forensics ── */
+.rpt-cost-overview {
+  display: flex; gap: var(--sp-4); padding: var(--sp-3);
+  background: var(--bg-elevated); border-radius: var(--radius-md);
+  margin-bottom: var(--sp-3);
+}
+.rpt-cost-stat { display: flex; flex-direction: column; gap: 2px; }
+.rpt-cost-val { font-size: var(--text-md); font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); }
+.rpt-cost-lbl { font-size: 10px; color: var(--text-muted); }
+.rpt-subsection { margin-bottom: var(--sp-3); }
+.rpt-sub-title { font-size: 10px; font-weight: 600; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+.rpt-bar-row { display: flex; align-items: center; gap: var(--sp-2); padding: 3px 0; }
+.rpt-bar-label { font-size: var(--text-xs); color: var(--text-secondary); min-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpt-bar-track { flex: 1; height: 6px; background: var(--bg-card); border-radius: 3px; overflow: hidden; }
+.rpt-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+.rpt-bar-value { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--text-muted); min-width: 50px; text-align: right; }
+
+/* ── Two Column ── */
+.rpt-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+
+/* ── Recommendations ── */
+.rpt-rec { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2); margin-bottom: var(--sp-1); background: var(--bg-elevated); border-radius: var(--radius-md); }
+.rpt-rec-prio { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.rpt-rec-body { flex: 1; }
+.rpt-rec-title { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+.rpt-rec-desc { font-size: var(--text-xs); color: var(--text-secondary); margin-top: 2px; line-height: 1.4; }
+.rpt-rec-savings { font-size: 10px; color: var(--success); margin-top: 2px; font-weight: 600; }
+
+/* ── Project Insights ── */
+.rpt-insight { padding: var(--sp-2); margin-bottom: var(--sp-1); background: var(--bg-elevated); border-radius: var(--radius-md); }
+.rpt-insight-name { font-size: var(--text-sm); font-weight: 600; color: var(--accent); }
+.rpt-insight-text { font-size: var(--text-xs); color: var(--text-secondary); margin-top: 2px; line-height: 1.4; }
+
+/* ── Workflow ── */
+.rpt-workflow-text { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6; padding: var(--sp-3); background: var(--bg-elevated); border-radius: var(--radius-md); }
+
 /* ── Workflow Insights (enhanced) ── */
 .wf-insights-section { margin-bottom: var(--sp-3); }
 .wf-section-title { font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: var(--sp-2); }
