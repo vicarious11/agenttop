@@ -40,8 +40,24 @@ class AgentTop(App):
     TabbedContent {
         height: 1fr;
     }
+    ContentSwitcher {
+        height: 1fr;
+    }
     TabPane {
         padding: 0;
+    }
+    Tab {
+        padding: 0 2;
+    }
+    Tab.-active {
+        text-style: bold;
+    }
+    DataTable {
+        scrollbar-size: 1 1;
+    }
+    DataTable > .datatable--header {
+        text-style: bold;
+        color: $accent;
     }
     """
 
