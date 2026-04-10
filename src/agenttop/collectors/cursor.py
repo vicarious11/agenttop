@@ -26,11 +26,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 from agenttop.collectors.base import BaseCollector
 from agenttop.config import CURSOR_DIR
 from agenttop.models import Event, Session, ToolName, ToolStats
+
+logger = logging.getLogger(__name__)
 
 # Token estimates by source type (Cursor doesn't store real token counts).
 # Derived from sampling ~50 Cursor sessions and measuring avg prompt+completion
@@ -64,9 +64,9 @@ def _extract_project(filepath: str) -> str | None:
     """
     if not filepath or not filepath.startswith("/"):
         return None
-    from pathlib import Path as _P
+    from pathlib import Path as _Path
 
-    home = str(_P.home())
+    home = str(_Path.home())
     rel = filepath[len(home) + 1:] if filepath.startswith(home + "/") else filepath.lstrip("/")
     parts = rel.split("/")
 
@@ -485,9 +485,9 @@ class CursorCollector(BaseCollector):
             result["ai_vs_human"] = {}
 
         # Table row counts (allowlist — safe from injection)
-        _ALLOWED_TABLES = frozenset({"ai_code_hashes", "conversation_summaries", "scored_commits"})
+        _allowed_tables = frozenset({"ai_code_hashes", "conversation_summaries", "scored_commits"})
         table_counts: dict[str, int] = {}
-        for table in _ALLOWED_TABLES:
+        for table in _allowed_tables:
             rows = self._query(f"SELECT COUNT(*) as cnt FROM {table}")
             if rows:
                 table_counts[table] = rows[0].get("cnt", 0)

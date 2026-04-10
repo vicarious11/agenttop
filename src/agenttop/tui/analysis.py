@@ -71,7 +71,7 @@ class ModelUsageChart(PlotextPlot):
 
     DEFAULT_CSS = """
     ModelUsageChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -125,7 +125,7 @@ class DailyModelChart(PlotextPlot):
 
     DEFAULT_CSS = """
     DailyModelChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -182,7 +182,7 @@ class HourlyActivityChart(PlotextPlot):
 
     DEFAULT_CSS = """
     HourlyActivityChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -233,7 +233,7 @@ class ProjectBreakdownChart(PlotextPlot):
 
     DEFAULT_CSS = """
     ProjectBreakdownChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -280,7 +280,7 @@ class IntentDistributionChart(PlotextPlot):
 
     DEFAULT_CSS = """
     IntentDistributionChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -337,7 +337,8 @@ class DataInsights(Static):
     DataInsights {
         height: auto;
         padding: 1 2;
-        border: solid $accent;
+        border: tall $accent;
+        margin: 0 1;
     }
     """
 
@@ -345,7 +346,7 @@ class DataInsights(Static):
         if not insights:
             self.update("[dim]No insights available. Make sure Claude Code has usage data.[/]")
             return
-        text = "[bold]Data-Driven Insights[/]\n\n" + "\n".join(f"  [green]•[/] {i}" for i in insights)
+        text = "[bold cyan]Insights[/]\n\n" + "\n".join(f"  [green]>[/] {i}" for i in insights)
         self.update(text)
 
 
@@ -492,18 +493,19 @@ class AnalysisView(Static):
     AnalysisView Label {
         padding: 0 2;
         text-style: bold;
+        color: $accent;
     }
     AnalysisView Button {
         margin: 1 2;
     }
     #analysis-charts-row {
-        height: 14;
+        height: 16;
     }
     #analysis-charts-row-2 {
-        height: 14;
+        height: 16;
     }
     #analysis-charts-row-3 {
-        height: 14;
+        height: 16;
     }
     """
 
@@ -611,7 +613,8 @@ class AnalysisView(Static):
 
         # Show loading state for LLM-powered sections
         self.query_one(DataInsights).update(
-            "[bold]Analyzing with LLM...[/]\n\n[dim]Classifying intents and generating insights — this may take a moment.[/]"
+            "[bold]Analyzing with LLM...[/]\n\n[dim]Classifying intents "
+            "and generating insights — this may take a moment.[/]"
         )
 
         # Collect prompt samples for LLM classification
@@ -651,7 +654,8 @@ class AnalysisView(Static):
             numbered = "\n".join(f"{i+1}. {p[:120]}" for i, p in enumerate(sample))
             batch_prompt = (
                 "Classify each prompt into exactly one category.\n"
-                "Categories: debugging, refactoring, greenfield, exploration, code_review, devops, documentation\n\n"
+                "Categories: debugging, refactoring, greenfield, exploration, "
+                "code_review, devops, documentation\n\n"
                 f"Prompts:\n{numbered}\n\n"
                 "Respond with ONLY a JSON array of category names, one per prompt, in order.\n"
                 'Example: ["debugging", "exploration", "greenfield"]'
@@ -659,7 +663,10 @@ class AnalysisView(Static):
             result = get_completion(
                 batch_prompt,
                 llm_config,
-                system="You classify developer prompts into categories. Respond only with a JSON array.",
+                system=(
+                    "You classify developer prompts into categories. "
+                    "Respond only with a JSON array."
+                ),
                 max_tokens=512,
             )
 

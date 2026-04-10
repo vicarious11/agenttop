@@ -3,6 +3,7 @@
 const App = {
   days: 0,
   ws: null,
+  _currentTab: 'overview',
   data: { graph: null, stats: [], models: {}, hours: {}, sessions: [] },
 
   TOOL_COLORS: {
@@ -32,6 +33,23 @@ const App = {
     return '$' + n.toFixed(3);
   },
 
+  switchTab(tabId) {
+    App._currentTab = tabId;
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.tab-pane').forEach(pane => {
+      pane.classList.toggle('active', pane.dataset.pane === tabId);
+    });
+    history.replaceState(null, '', '#' + tabId);
+    if (tabId === 'sessions' && typeof SessionExplorer !== 'undefined') {
+      SessionExplorer.renderBrowse();
+    }
+    if (tabId === 'analyze' && typeof SessionExplorer !== 'undefined') {
+      SessionExplorer.renderAnalyze();
+    }
+  },
+
   async init() {
     const select = document.getElementById('time-range');
     select.addEventListener('change', () => {
@@ -40,9 +58,15 @@ const App = {
       App.refresh();
     });
 
+    // Tab bar click handlers
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => App.switchTab(btn.dataset.tab));
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      // Time range shortcuts
       const map = { '1': '1', '2': '7', '3': '30', '4': '0' };
       if (map[e.key]) {
         select.value = map[e.key];
@@ -50,6 +74,10 @@ const App = {
         App._syncWSDays();
         App.refresh();
       }
+      // Tab shortcuts
+      if (e.key === 'o') App.switchTab('overview');
+      if (e.key === 's') App.switchTab('sessions');
+      if (e.key === 'a') App.switchTab('analyze');
       // Escape closes detail overlay
       if (e.key === 'Escape') {
         document.getElementById('node-detail').classList.add('hidden');
@@ -60,6 +88,12 @@ const App = {
     document.getElementById('detail-close').addEventListener('click', () => {
       document.getElementById('node-detail').classList.add('hidden');
     });
+
+    // Restore tab from URL hash
+    const hash = location.hash.slice(1);
+    if (['overview', 'sessions', 'analyze'].includes(hash)) {
+      App.switchTab(hash);
+    }
 
     await App.refresh();
     App.connectWS();
@@ -89,8 +123,19 @@ const App = {
       App.renderToolBar(App.data.stats);
       Panels.renderModels(App.data.models);
       Panels.renderHourly(App.data.hours);
-      Panels.renderSessions(App.data.sessions);
       Panels.renderCost(App.data.stats);
+
+      // Update session data and tab badges
+      if (typeof SessionExplorer !== 'undefined') {
+        SessionExplorer._sessions = App.data.sessions;
+        SessionExplorer._applyFilters();
+        const nonEmpty = App.data.sessions.filter(s => (s.message_count || 0) > 0 || (s.total_tokens || 0) > 0);
+        const sessBadge = document.getElementById('tab-badge-sessions');
+        if (sessBadge) sessBadge.textContent = nonEmpty.length;
+        // Re-render active tab content
+        if (App._currentTab === 'sessions') SessionExplorer.renderBrowse();
+        if (App._currentTab === 'analyze') SessionExplorer.renderAnalyze();
+      }
     } catch (err) {
       console.error('Failed to load data:', err);
     }

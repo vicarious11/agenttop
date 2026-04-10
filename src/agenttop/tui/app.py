@@ -17,8 +17,8 @@ from agenttop.db import EventStore
 from agenttop.tui.analysis import AnalysisView
 from agenttop.tui.dashboard import DashboardView
 from agenttop.tui.knowledge_graph import KnowledgeGraphView
+from agenttop.tui.session_explorer import SessionExplorerView
 from agenttop.tui.sessions import SessionsView
-from agenttop.tui.suggestions import SuggestionsView
 
 TIME_RANGES = [
     (1, "Today"),
@@ -40,8 +40,24 @@ class AgentTop(App):
     TabbedContent {
         height: 1fr;
     }
+    ContentSwitcher {
+        height: 1fr;
+    }
     TabPane {
         padding: 0;
+    }
+    Tab {
+        padding: 0 2;
+    }
+    Tab.-active {
+        text-style: bold;
+    }
+    DataTable {
+        scrollbar-size: 1 1;
+    }
+    DataTable > .datatable--header {
+        text-style: bold;
+        color: $accent;
     }
     """
 
@@ -49,9 +65,9 @@ class AgentTop(App):
         Binding("q", "quit", "Quit"),
         Binding("d", "switch_tab('dashboard')", "Dashboard", show=True),
         Binding("s", "switch_tab('sessions')", "Sessions", show=True),
+        Binding("e", "switch_tab('explorer')", "Explorer", show=True),
         Binding("a", "switch_tab('analysis')", "Analysis", show=True),
         Binding("k", "switch_tab('knowledge-graph')", "Graph", show=True),
-        Binding("r", "switch_tab('suggestions')", "Suggest", show=True),
         Binding("1", "set_range(1)", "Today"),
         Binding("2", "set_range(7)", "7 days"),
         Binding("3", "set_range(30)", "30 days"),
@@ -86,12 +102,12 @@ class AgentTop(App):
                 yield DashboardView(self.collectors, self.db, self.days, budget)
             with TabPane("Sessions", id="sessions"):
                 yield SessionsView(self.collectors, self.db, self.days)
+            with TabPane("Explorer", id="explorer"):
+                yield SessionExplorerView(self.collectors, self.db, self.days)
             with TabPane("Analysis", id="analysis"):
                 yield AnalysisView(self.collectors, self.db)
             with TabPane("Knowledge Graph", id="knowledge-graph"):
                 yield KnowledgeGraphView(self.collectors, self.db)
-            with TabPane("Suggestions", id="suggestions"):
-                yield SuggestionsView(self.collectors, self.db)
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
@@ -108,7 +124,7 @@ class AgentTop(App):
 
     def action_help(self) -> None:
         self.notify(
-            "[d]ashboard [s]essions [a]nalysis [k]nowledge graph [r]ecommend | "
+            "[d]ashboard [s]essions [e]xplorer [a]nalysis [k]nowledge graph | "
             "Range: [1] today [2] 7d [3] 30d [4] all | [q]uit",
             title="Help",
         )

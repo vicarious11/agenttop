@@ -156,5 +156,8 @@ def check_llm_available(config: LLMConfig) -> str:
     # For cloud providers, just check if key is set
     api_key, _ = _resolve_config(config)
     if not api_key:
-        return f"No API key configured. Set {config.api_key_env} or add it to ~/.agenttop/config.toml"
+        return (
+            f"No API key configured. Set {config.api_key_env} "
+            f"or add it to ~/.agenttop/config.toml"
+        )
     return ""

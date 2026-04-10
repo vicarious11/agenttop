@@ -46,7 +46,7 @@ STATUS_ICONS = {
 
 
 class StatsBar(Static):
-    """Top bar showing aggregate stats."""
+    """Top bar showing aggregate stats with colored metrics."""
 
     DEFAULT_CSS = """
     StatsBar {
@@ -73,27 +73,24 @@ class StatsBar(Static):
 
         label = RANGE_LABELS.get(days, f"Last {days}d")
 
-        # Build base message
-        base_message = (
-            f"  {label}: {human_tokens(total_tokens)} tokens | "
-            f"{human_cost(total_cost)} est. cost | "
-            f"{total_sessions} sessions | {human_number(total_messages)} messages | "
-            f"{active} active"
-        )
+        parts = [
+            f"[bold]{label}[/bold]",
+            f"[cyan bold]{human_tokens(total_tokens)}[/] tok",
+            f"[yellow bold]{human_cost(total_cost)}[/] cost",
+            f"[green bold]{total_sessions}[/] sess",
+            f"[blue bold]{human_number(total_messages)}[/] msgs",
+            f"[{'green' if active > 0 else 'dim'}]{active}[/] active",
+        ]
 
-        # Add budget indicator if budget is configured
+        # Budget indicator
         if budget > 0:
             budget_info = check_budget(total_cost, budget)
             if budget_info.status.value == "alert":
-                budget_msg = f" | [red]⚠️ OVER BUDGET ({budget_info.ratio:.0%})[/red]"
-                base_message += budget_msg
+                parts.append(f"[red bold]OVER BUDGET ({budget_info.ratio:.0%})[/]")
             elif budget_info.status.value == "warning":
-                budget_msg = f" | [yellow]⚠️ {budget_info.ratio:.0%} of budget[/yellow]"
-                base_message += budget_msg
+                parts.append(f"[yellow]{budget_info.ratio:.0%} of budget[/]")
 
-        self.update(
-            base_message + "  [dim]\\[1] today [2] 7d [3] 30d [4] all[/]"
-        )
+        self.update("  " + "  [dim]|[/]  ".join(parts))
 
 
 class TokenFlowChart(PlotextPlot):
@@ -101,7 +98,7 @@ class TokenFlowChart(PlotextPlot):
 
     DEFAULT_CSS = """
     TokenFlowChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -152,7 +149,7 @@ class ToolBreakdownChart(PlotextPlot):
 
     DEFAULT_CSS = """
     ToolBreakdownChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -200,7 +197,7 @@ class DailyUsageChart(PlotextPlot):
 
     DEFAULT_CSS = """
     DailyUsageChart {
-        height: 14;
+        height: 16;
         padding: 0 1;
     }
     """
@@ -239,10 +236,10 @@ class DashboardView(Static):
         height: 1fr;
     }
     #charts-row {
-        height: 14;
+        height: 16;
     }
     #charts-row-2 {
-        height: 14;
+        height: 16;
     }
     #tool-table {
         height: 1fr;
@@ -285,9 +282,12 @@ class DashboardView(Static):
         self,
         collectors: list[BaseCollector],
         days: int | None = None,
+        budget: float = 0.0,
     ) -> None:
         if days is not None:
             self._days = days
+        if budget > 0:
+            self._budget = budget
 
         table = self.query_one("#tool-table", DataTable)
         table.clear()
@@ -303,14 +303,15 @@ class DashboardView(Static):
                 name = TOOL_DISPLAY.get(
                     stats.tool.value, stats.tool.value
                 )
+                color = TOOL_COLORS.get(stats.tool.value, "white")
                 table.add_row(
                     icon,
-                    name,
+                    f"[{color} bold]{name}[/]",
                     str(stats.sessions_today),
                     human_number(stats.messages_today),
                     str(stats.tool_calls_today),
-                    human_tokens(stats.tokens_today),
-                    human_cost(stats.estimated_cost_today),
+                    f"[cyan]{human_tokens(stats.tokens_today)}[/]",
+                    f"[yellow]{human_cost(stats.estimated_cost_today)}[/]",
                 )
             except Exception:
                 pass

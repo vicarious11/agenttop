@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agenttop — AI Agent Command Center</title>
+  <meta name="description" content="htop for AI coding agents. Real-time monitoring dashboard for Claude Code, Cursor, Copilot, Codex, Kiro, and more.">
+  <meta property="og:title" content="agenttop — htop for AI Coding Agents">
+  <meta property="og:description" content="Monitor all your AI coding agents in one neon-cyberpunk dashboard. Token usage, costs, sessions, model breakdown — all in real time.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+/* ═══════════════════════════════════════════════════════════
+   agenttop — Neon Cyberpunk Demo
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  --neon-cyan: #00fff5;
+  --neon-orange: #ff6b00;
+  --neon-magenta: #ff00ff;
+  --neon-green: #00ff88;
+  --neon-blue: #4488ff;
+  --neon-yellow: #ffee00;
+  --neon-purple: #6644ff;
+  --neon-red: #ff4444;
+  --neon-white: #e0e0ff;
+  --bg-deep: #050508;
+  --bg-dark: #0a0a10;
+  --bg-panel: rgba(12, 12, 22, 0.85);
+  --bg-card: rgba(18, 18, 32, 0.65);
+  --bg-hover: rgba(255, 255, 255, 0.03);
+  --border-dim: rgba(255, 255, 255, 0.04);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-glow: rgba(0, 255, 245, 0.15);
+  --text-primary: #d8d8e8;
+  --text-secondary: #7777a0;
+  --text-dim: #44445a;
+  --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --panel-radius: 10px;
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  height: 100%; background: var(--bg-deep); color: var(--text-primary);
+  font-family: var(--font-sans); font-size: 13px; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.bg-grid {
+  position: fixed; inset: 0;
+  background: linear-gradient(rgba(0,255,245,0.025) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0,255,245,0.025) 1px, transparent 1px);
+  background-size: 50px 50px; pointer-events: none; z-index: 0;
+  animation: grid-drift 20s linear infinite;
+}
+@keyframes grid-drift { 0% { transform: translate(0,0); } 100% { transform: translate(50px,50px); } }
+.bg-scan { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+.bg-scan::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0,255,245,0.08), rgba(0,255,245,0.15), rgba(0,255,245,0.08), transparent);
+  animation: scan-line 8s linear infinite;
+}
+@keyframes scan-line { 0% { top: -2px; } 100% { top: 100%; } }
+.bg-vignette {
+  position: fixed; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(5,5,8,0.7) 100%);
+  pointer-events: none; z-index: 0;
+}
+.glass-panel {
+  background: var(--bg-panel); backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--border-subtle); border-radius: var(--panel-radius);
+  position: relative; overflow: hidden;
+}
+.glass-panel::before {
+  content: ''; position: absolute; top: 0; left: 20%; right: 20%; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-glow), transparent); z-index: 1;
+}
+.panel-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid var(--border-dim);
+}
+.panel-title {
+  display: flex; align-items: center; gap: 6px; font-size: 10px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-secondary);
+}
+.panel-icon { color: var(--neon-cyan); font-size: 12px; filter: drop-shadow(0 0 4px var(--neon-cyan)); }
+.panel-body { padding: 8px 12px; }
+.panel-badge { font-size: 9px; font-family: var(--font-mono); color: var(--text-dim); letter-spacing: 0.5px; }
+
+/* ── TOP BAR ── */
+#topbar {
+  display: flex; align-items: center; gap: 20px; padding: 8px 16px;
+  background: rgba(8,8,14,0.95); border-bottom: 1px solid var(--border-dim);
+  z-index: 100; position: relative;
+}
+#topbar::after {
+  content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,107,0,0.3) 20%, rgba(0,255,245,0.3) 50%, rgba(255,0,255,0.3) 80%, transparent);
+}
+.logo { display: flex; align-items: center; gap: 10px; white-space: nowrap; flex-shrink: 0; }
+.logo-glyph { animation: logo-pulse 4s ease-in-out infinite; }
+.logo-hex-spin { transform-origin: 14px 14px; animation: hex-rotate 30s linear infinite; }
+.logo-core { animation: core-pulse 2s ease-in-out infinite; }
+@keyframes logo-pulse { 0%,100% { filter: drop-shadow(0 0 4px rgba(255,107,0,0.4)); } 50% { filter: drop-shadow(0 0 12px rgba(255,107,0,0.8)); } }
+@keyframes hex-rotate { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@keyframes core-pulse { 0%,100% { opacity: 0.8; } 50% { opacity: 1; } }
+.logo-text { font-size: 16px; font-weight: 700; font-family: var(--font-mono); color: var(--text-primary); letter-spacing: -0.5px; }
+.logo-text .accent { color: var(--neon-orange); text-shadow: 0 0 8px rgba(255,107,0,0.5), 0 0 16px rgba(255,107,0,0.2); }
+.logo-tag { font-size: 8px; font-family: var(--font-mono); color: var(--text-dim); border: 1px solid var(--border-dim); padding: 1px 4px; border-radius: 3px; letter-spacing: 0.5px; }
+
+/* ── Stats Ribbon ── */
+.stats-ribbon { display: flex; gap: 6px; flex: 1; justify-content: center; overflow-x: auto; scrollbar-width: none; }
+.stats-ribbon::-webkit-scrollbar { display: none; }
+.stat-card {
+  display: flex; flex-direction: column; align-items: center; padding: 4px 12px;
+  border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-dim);
+  min-width: 80px; transition: all 0.3s var(--ease-out); position: relative; cursor: default;
+}
+.stat-card::after { content: ''; position: absolute; bottom: 0; left: 20%; right: 20%; height: 1px; background: var(--neon-cyan); opacity: 0; transition: opacity 0.3s; }
+.stat-card:hover { border-color: rgba(0,255,245,0.2); background: rgba(0,255,245,0.03); }
+.stat-card:hover::after { opacity: 0.4; }
+.stat-value { font-size: 15px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; transition: transform 0.2s var(--ease-spring), color 0.3s; }
+.stat-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-top: 1px; }
+.stat-spark { width: 50px; height: 12px; margin-top: 2px; }
+.stat-spark path { fill: none; stroke-width: 1.5; opacity: 0.6; }
+
+.topbar-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.live-indicator { display: flex; align-items: center; gap: 5px; }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--neon-green); box-shadow: 0 0 6px var(--neon-green), 0 0 12px rgba(0,255,136,0.3); animation: live-blink 2s ease-in-out infinite; }
+@keyframes live-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.live-text { font-size: 9px; font-weight: 700; font-family: var(--font-mono); letter-spacing: 2px; color: var(--neon-green); text-shadow: 0 0 6px rgba(0,255,136,0.4); }
+.neon-select { background: rgba(255,255,255,0.04); border: 1px solid var(--border-dim); border-radius: 6px; color: var(--text-primary); padding: 4px 8px; font-family: var(--font-mono); font-size: 10px; cursor: pointer; outline: none; }
+.neon-select:hover, .neon-select:focus { border-color: var(--neon-cyan); }
+.neon-select option { background: #12121e; }
+
+/* ── MAIN LAYOUT ── */
+#main {
+  display: grid; grid-template-columns: 1fr 360px; gap: 10px; padding: 10px 16px;
+  height: calc(100vh - 48px - 34px - 42px); position: relative; z-index: 1;
+}
+#graph-container { display: flex; flex-direction: column; min-width: 0; }
+#graph-area { flex: 1; position: relative; overflow: hidden; }
+#graph-svg { width: 100%; height: 100%; display: block; }
+.graph-legend { display: flex; gap: 12px; font-size: 9px; }
+.legend-item { display: flex; align-items: center; gap: 4px; color: var(--text-dim); letter-spacing: 0.5px; }
+.legend-shape { width: 7px; height: 7px; display: inline-block; border: 1px solid currentColor; }
+.legend-circle { border-radius: 50%; }
+.legend-hex { clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+.legend-diamond { transform: rotate(45deg); border-radius: 1px; }
+.legend-rect { border-radius: 2px; }
+
+#data-column { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(0,255,245,0.15) transparent; }
+.mini-panel { flex-shrink: 0; }
+.sessions-stretch { flex: 1; min-height: 120px; display: flex; flex-direction: column; }
+.sessions-stretch .panel-body { flex: 1; overflow-y: auto; }
+
+/* ── MODEL USAGE ── */
+.model-legend { display: flex; align-items: center; gap: 4px; font-size: 8px; color: var(--text-dim); letter-spacing: 0.3px; }
+.ml-dot { width: 6px; height: 6px; border-radius: 1px; display: inline-block; margin-left: 6px; }
+.ml-input { background: var(--neon-cyan); }
+.ml-output { background: var(--neon-orange); }
+.ml-cache { background: var(--neon-green); }
+.model-row { padding: 5px 0; border-bottom: 1px solid var(--border-dim); animation: fade-slide-in 0.3s var(--ease-out) forwards; opacity: 0; }
+.model-row:last-child { border-bottom: none; }
+.model-row:nth-child(1) { animation-delay: 0s; }
+.model-row:nth-child(2) { animation-delay: 0.05s; }
+.model-row:nth-child(3) { animation-delay: 0.1s; }
+.model-row:nth-child(4) { animation-delay: 0.15s; }
+.model-row:nth-child(5) { animation-delay: 0.2s; }
+.model-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.model-name { font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.model-stats { display: flex; gap: 8px; font-family: var(--font-mono); font-size: 10px; }
+.model-tokens { color: var(--text-secondary); }
+.model-cost { color: var(--neon-orange); }
+.model-bar-track { display: flex; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.03); overflow: hidden; }
+.model-seg { height: 100%; transition: width 0.6s var(--ease-out); min-width: 0; }
+.seg-input { background: var(--neon-cyan); opacity: 0.8; }
+.seg-output { background: var(--neon-orange); opacity: 0.8; }
+.seg-cache { background: var(--neon-green); opacity: 0.6; }
+.model-seg:hover { opacity: 1; }
+
+/* ── HOURLY ── */
+.hourly-chart { display: flex; align-items: flex-end; gap: 2px; height: 60px; padding-bottom: 14px; position: relative; }
+.hour-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; position: relative; }
+.hour-bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.hour-bar { width: 100%; background: var(--neon-cyan); border-radius: 2px 2px 0 0; min-height: 1px; transition: height 0.4s var(--ease-out), opacity 0.3s; }
+.hour-col:hover .hour-bar { opacity: 1 !important; box-shadow: 0 0 8px var(--neon-cyan); }
+.hour-now .hour-bar { background: var(--neon-orange) !important; box-shadow: 0 0 8px rgba(255,107,0,0.5); }
+.hour-label { font-size: 7px; font-family: var(--font-mono); color: var(--text-dim); position: absolute; bottom: -2px; letter-spacing: 0.3px; }
+.hour-label-spacer { height: 10px; }
+
+/* ── SESSIONS ── */
+.sessions-list { display: flex; flex-direction: column; }
+.session-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border-dim); font-size: 10px; font-family: var(--font-mono); animation: fade-slide-in 0.25s var(--ease-out) forwards; opacity: 0; transition: background 0.15s; }
+.session-row:last-child { border-bottom: none; }
+.session-row:hover { background: var(--bg-hover); }
+.session-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.session-project { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.session-badge { font-size: 8px; padding: 1px 4px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; }
+.session-dur { background: rgba(0,255,245,0.08); color: var(--neon-cyan); }
+.session-msgs { background: rgba(255,0,255,0.08); color: var(--neon-magenta); }
+.session-lines { background: rgba(0,255,136,0.08); color: var(--neon-green); }
+.session-tokens { color: var(--neon-cyan); flex-shrink: 0; min-width: 36px; text-align: right; }
+.session-time { color: var(--text-dim); flex-shrink: 0; min-width: 32px; text-align: right; font-size: 9px; }
+
+/* ── COST ── */
+.cost-badge { color: var(--neon-orange) !important; font-weight: 600; }
+.cost-summary { display: flex; gap: 12px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border-dim); }
+.cost-sum-item { display: flex; flex-direction: column; align-items: center; flex: 1; }
+.cost-sum-val { font-size: 14px; font-weight: 700; font-family: var(--font-mono); line-height: 1.2; }
+.cost-sum-label { font-size: 7px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-top: 1px; }
+.cost-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.cost-info { display: flex; align-items: center; gap: 5px; min-width: 90px; flex-shrink: 0; }
+.cost-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.cost-name { font-size: 10px; font-family: var(--font-mono); color: var(--text-secondary); }
+.cost-bar-track { flex: 1; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.03); overflow: hidden; }
+.cost-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s var(--ease-out); }
+.cost-value { font-size: 10px; font-family: var(--font-mono); font-weight: 600; color: var(--neon-orange); min-width: 44px; text-align: right; }
+
+/* ── TOOL BAR ── */
+.tool-bar { display: flex; gap: 6px; padding: 5px 16px; height: 34px; align-items: center; background: rgba(8,8,14,0.9); border-top: 1px solid var(--border-dim); position: relative; z-index: 10; overflow-x: auto; }
+.tool-chip { display: flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-family: var(--font-mono); letter-spacing: 0.5px; white-space: nowrap; border: 1px solid var(--border-dim); background: rgba(255,255,255,0.02); transition: all 0.2s; }
+.tool-chip .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.tool-chip.active { border-color: rgba(255,255,255,0.1); }
+.tool-chip.active .dot { box-shadow: 0 0 4px currentColor; }
+.tool-chip.idle { opacity: 0.4; }
+.tool-chip .chip-value { color: var(--text-secondary); }
+
+/* ── TOOLTIP ── */
+.tooltip { position: fixed; pointer-events: none; background: rgba(8,8,16,0.96); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 10px 14px; font-size: 11px; font-family: var(--font-mono); color: var(--text-primary); z-index: 1000; opacity: 0; transition: opacity 0.12s; max-width: 260px; box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 1px rgba(0,255,245,0.2); backdrop-filter: blur(12px); }
+.tooltip.visible { opacity: 1; }
+.tooltip-title { font-weight: 700; font-size: 12px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.tooltip-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; color: var(--text-secondary); font-size: 10px; }
+.tooltip-row .val { color: var(--neon-cyan); font-weight: 600; }
+
+/* ── GRAPH SVG ── */
+.node-label { font-family: var(--font-mono); font-size: 10px; fill: var(--text-dim); pointer-events: none; text-anchor: middle; }
+.node-label-bright { fill: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.node-label-center { font-size: 12px; font-weight: 700; fill: var(--text-primary); }
+.edge-path { fill: none; transition: stroke-opacity 0.2s; }
+.edge-path.highlighted { stroke-opacity: 0.7 !important; }
+.edge-path.dimmed { stroke-opacity: 0.03 !important; }
+.edge-label { font-family: var(--font-mono); font-size: 8px; fill: var(--text-dim); pointer-events: none; transition: opacity 0.2s; }
+.particle { pointer-events: none; }
+.ring-pulse { animation: ring-breathe 3s ease-in-out infinite; }
+@keyframes ring-breathe { 0%,100% { opacity: 0.15; } 50% { opacity: 0.35; } }
+
+/* ── DRAWER ── */
+.drawer { position: fixed; bottom: 0; left: 0; right: 0; z-index: 200; border-radius: var(--panel-radius) var(--panel-radius) 0 0; max-height: 80vh; transition: transform 0.4s cubic-bezier(0.4,0,0.2,1); }
+.drawer.collapsed { transform: translateY(calc(100% - 42px)); }
+.drawer.fullscreen { max-height: 100vh; top: 0; border-radius: 0; z-index: 300; }
+.drawer.fullscreen .drawer-body { max-height: calc(100vh - 42px); }
+.drawer-handle { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; cursor: pointer; user-select: none; border-bottom: 1px solid var(--border-dim); }
+.drawer-handle:hover { background: var(--bg-hover); }
+.drawer-handle-left { display: flex; align-items: center; gap: 8px; }
+.drawer-icon { color: var(--neon-cyan); filter: drop-shadow(0 0 4px var(--neon-cyan)); font-size: 14px; }
+.drawer-title { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+.drawer-chevron { font-size: 10px; color: var(--text-dim); transition: transform 0.3s; }
+.drawer.collapsed .drawer-chevron { transform: rotate(180deg); }
+.drawer-controls { display: flex; align-items: center; gap: 12px; }
+.drawer-fullscreen-btn { font-size: 14px; color: var(--text-dim); cursor: pointer; transition: color 0.2s; line-height: 1; }
+.drawer-fullscreen-btn:hover { color: var(--neon-cyan); }
+.drawer-body { padding: 20px 24px; overflow-y: auto; max-height: calc(80vh - 42px); }
+
+
+@keyframes fade-slide-in { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+
+/* ── GitHub corner ── */
+/* ── Score ── */
+.score-container { display: flex; align-items: center; gap: 24px; margin-bottom: 20px; }
+.score-circle { width: 90px; height: 90px; position: relative; flex-shrink: 0; }
+.score-circle svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.score-circle .bg { fill: none; stroke: rgba(255,255,255,0.04); stroke-width: 5; }
+.score-circle .progress { fill: none; stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 1.2s var(--ease-out); filter: drop-shadow(0 0 6px currentColor); }
+.score-number { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; font-family: var(--font-mono); }
+.score-label { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; line-height: 1.5; }
+/* ── Dev Profile ── */
+.dev-profile-section { background: linear-gradient(135deg, rgba(0,255,245,0.04), rgba(255,107,0,0.04)); border: 1px solid rgba(0,255,245,0.15); border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+.dev-profile-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.dev-profile-icon { font-size: 22px; }
+.dev-profile-title { font-size: 16px; font-weight: 700; color: var(--neon-cyan); text-shadow: 0 0 8px rgba(0,255,245,0.3); }
+.dev-profile-bio { font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin: 0 0 10px 0; }
+.dev-profile-traits { display: flex; flex-wrap: wrap; gap: 6px; }
+.trait-chip { font-size: 10px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); letter-spacing: 0.3px; }
+/* ── Context Engineering ── */
+.context-eng-section { margin-bottom: 20px; }
+.context-eng-section h3, .anti-patterns-section h3, .session-deep-section h3, .cost-forensics-section h3, .prompt-analysis-section h3, .recommendations-section h3, .missing-section h3, .strengths-section h3, .project-insights-section h3, .workflow-section h3 { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 10px; }
+.ce-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ce-stat { text-align: center; padding: 12px 8px; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-dim); }
+.ce-value { font-size: 16px; font-weight: 700; font-family: var(--font-mono); color: var(--neon-cyan); margin-bottom: 4px; }
+.ce-value small { font-size: 11px; font-weight: 400; }
+.ce-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+/* ── Anti-Patterns ── */
+.anti-patterns-section { margin-bottom: 20px; }
+.ap-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-left: 3px solid var(--neon-yellow); border-radius: 6px; padding: 12px 14px; margin-bottom: 8px; }
+.ap-card.high { border-left-color: var(--neon-red); }
+.ap-card.medium { border-left-color: var(--neon-yellow); }
+.ap-card.low { border-left-color: var(--neon-cyan); }
+.ap-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ap-icon { font-size: 16px; }
+.ap-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.ap-severity { font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; letter-spacing: 0.5px; }
+.ap-severity.high { background: rgba(255,68,68,0.15); color: var(--neon-red); }
+.ap-severity.medium { background: rgba(255,238,0,0.12); color: var(--neon-yellow); }
+.ap-severity.low { background: rgba(0,255,245,0.1); color: var(--neon-cyan); }
+.ap-count { font-size: 10px; font-family: var(--font-mono); color: var(--text-secondary); margin-left: auto; }
+.ap-detail { font-size: 11px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; }
+.ap-fix { font-size: 11px; line-height: 1.5; padding: 8px 10px; border-radius: 4px; background: rgba(0,255,136,0.04); border: 1px solid rgba(0,255,136,0.12); color: var(--neon-green); margin-bottom: 6px; }
+.ap-examples { font-size: 10px; font-family: var(--font-mono); color: var(--text-dim); }
+.ap-example { padding: 2px 0; border-bottom: 1px solid var(--border-dim); }
+.ap-example:last-child { border-bottom: none; }
+/* ── Session Deep-Dive ── */
+.session-deep-section { margin-bottom: 20px; }
+.sd-card { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 10px 14px; margin-bottom: 6px; cursor: pointer; transition: border-color 0.2s; }
+.sd-card:hover { border-color: rgba(0,255,245,0.15); }
+.sd-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sd-icon { font-size: 14px; }
+.sd-project { font-weight: 600; font-size: 12px; color: var(--text-primary); }
+.sd-intent { font-size: 9px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; background: rgba(0,255,245,0.08); color: var(--neon-cyan); }
+.sd-tool { font-size: 9px; font-family: var(--font-mono); color: var(--text-dim); margin-left: auto; }
+.sd-metrics { display: flex; gap: 12px; margin-bottom: 4px; }
+.sd-metric { font-size: 10px; font-family: var(--font-mono); color: var(--text-secondary); }
+.sd-metric.warn { color: var(--neon-red); font-weight: 600; }
+.sd-metric.mid { color: var(--neon-yellow); }
+.sd-metric.ok { color: var(--neon-green); }
+.sd-prompt { font-size: 10px; color: var(--text-dim); font-style: italic; max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.3s, opacity 0.3s, margin 0.3s; }
+.sd-card.expanded .sd-prompt { max-height: 200px; opacity: 1; margin-top: 4px; }
+/* ── Cost Forensics ── */
+.cost-forensics-section { margin-bottom: 20px; }
+.cf-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.cf-stat { text-align: center; padding: 12px 8px; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-dim); }
+.cf-value { font-size: 18px; font-weight: 700; font-family: var(--font-mono); color: var(--neon-orange); margin-bottom: 4px; }
+.cf-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+.cf-projects { margin-bottom: 12px; }
+.cf-bar-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.cf-bar-label { font-size: 10px; font-family: var(--font-mono); color: var(--text-secondary); min-width: 80px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-bar-track { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.03); overflow: hidden; }
+.cf-bar-fill { height: 100%; border-radius: 3px; background: var(--neon-orange); transition: width 0.6s var(--ease-out); }
+.cf-bar-value { font-size: 10px; font-family: var(--font-mono); font-weight: 600; color: var(--neon-orange); min-width: 44px; text-align: right; }
+.cf-models { margin-bottom: 10px; }
+.cf-model-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: 10px; font-family: var(--font-mono); border-bottom: 1px solid var(--border-dim); }
+.cf-model-row:last-child { border-bottom: none; }
+.cf-model-name { color: var(--text-secondary); flex: 1; }
+.cf-model-cost { color: var(--neon-orange); font-weight: 600; min-width: 50px; text-align: right; }
+.cf-model-tokens { color: var(--text-dim); min-width: 60px; text-align: right; }
+.cf-saving { padding: 8px 10px; border-radius: 4px; background: rgba(0,255,136,0.04); border: 1px solid rgba(0,255,136,0.12); color: var(--neon-green); font-size: 11px; font-family: var(--font-mono); text-align: center; }
+/* ── Prompt Intelligence ── */
+.prompt-analysis-section { margin-bottom: 20px; }
+.pa-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.pa-stat { text-align: center; padding: 12px 8px; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-dim); }
+.pa-value { font-size: 18px; font-weight: 700; font-family: var(--font-mono); color: var(--neon-cyan); margin-bottom: 4px; }
+.pa-label { font-size: 8px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+.pa-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; background: rgba(255,255,255,0.03); }
+.pa-segment { height: 100%; min-width: 1px; }
+.pa-segment.cmd { background: var(--neon-red); opacity: 0.8; }
+.pa-segment.short { background: var(--neon-yellow); opacity: 0.8; }
+.pa-segment.detailed { background: var(--neon-cyan); opacity: 0.8; }
+.pa-segment.rich { background: var(--neon-green); opacity: 0.8; }
+.pa-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.pa-legend-item { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--text-dim); }
+.pa-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.pa-dot.cmd { background: var(--neon-red); }
+.pa-dot.short { background: var(--neon-yellow); }
+.pa-dot.detailed { background: var(--neon-cyan); }
+.pa-dot.rich { background: var(--neon-green); }
+.pa-commands { display: flex; flex-wrap: wrap; gap: 6px; }
+.pa-command { font-size: 10px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; background: rgba(0,255,245,0.06); border: 1px solid rgba(0,255,245,0.15); color: var(--neon-cyan); }
+.pa-command small { color: var(--text-dim); margin-left: 2px; }
+/* ── Grades ── */
+.grades-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 20px; }
+.grade-card { padding: 10px 12px; border-radius: 6px; background: rgba(255,255,255,0.015); border: 1px solid var(--border-dim); }
+.grade-card .grade-letter { font-size: 22px; font-weight: 700; font-family: var(--font-mono); line-height: 1; margin-bottom: 3px; }
+.grade-card .grade-name { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 3px; }
+.grade-card .grade-detail { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+.grade-A { border-color: rgba(0,255,136,0.3) !important; }
+.grade-A .grade-letter { color: var(--neon-green); text-shadow: 0 0 8px rgba(0,255,136,0.4); }
+.grade-B { border-color: rgba(0,255,245,0.2) !important; }
+.grade-B .grade-letter { color: var(--neon-cyan); text-shadow: 0 0 8px rgba(0,255,245,0.3); }
+.grade-C { border-color: rgba(255,238,0,0.2) !important; }
+.grade-C .grade-letter { color: var(--neon-yellow); text-shadow: 0 0 8px rgba(255,238,0,0.3); }
+.grade-D { border-color: rgba(255,68,68,0.2) !important; }
+.grade-D .grade-letter { color: var(--neon-red); text-shadow: 0 0 8px rgba(255,68,68,0.3); }
+/* ── Strengths ── */
+.strengths-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-bottom: 20px; }
+.strength-card { padding: 10px 14px; border-radius: 6px; background: rgba(0,255,136,0.02); border: 1px solid rgba(0,255,136,0.15); display: flex; gap: 10px; align-items: flex-start; }
+.strength-icon { font-size: 18px; flex-shrink: 0; line-height: 1; margin-top: 2px; }
+.strength-body h4 { font-size: 12px; font-weight: 600; color: var(--neon-green); margin: 0 0 3px 0; }
+.strength-body p { font-size: 11px; color: var(--text-secondary); margin: 0; line-height: 1.4; }
+/* ── Recommendations ── */
+.rec-card { padding: 10px 14px; border-radius: 6px; background: rgba(255,255,255,0.015); border: 1px solid var(--border-dim); margin-bottom: 6px; display: flex; gap: 10px; align-items: flex-start; }
+.rec-priority { font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; letter-spacing: 0.5px; }
+.rec-priority.high { background: rgba(255,68,68,0.15); color: var(--neon-red); }
+.rec-priority.medium { background: rgba(255,238,0,0.12); color: var(--neon-yellow); }
+.rec-priority.low { background: rgba(0,255,136,0.12); color: var(--neon-green); }
+.rec-body h4 { font-size: 12px; margin-bottom: 3px; }
+.rec-body p { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+.rec-savings { font-size: 10px; color: var(--neon-green); margin-top: 4px; font-family: var(--font-mono); }
+/* ── Missing Features ── */
+.missing-card { padding: 8px 12px; border-radius: 6px; background: rgba(255,255,255,0.015); border: 1px solid var(--border-dim); margin-bottom: 5px; }
+.missing-card .tool-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 3px; background: rgba(0,255,245,0.1); color: var(--neon-cyan); margin-right: 5px; }
+.missing-card .feature-name { font-weight: 600; font-size: 12px; }
+.missing-card .feature-evidence { font-size: 10px; color: var(--neon-yellow); margin-top: 3px; font-family: var(--font-mono); opacity: 0.75; }
+.missing-card .feature-benefit { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+/* ── Project Insights ── */
+.project-insights-section { margin-top: 20px; }
+.project-insight-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; transition: border-color 0.2s; }
+.project-insight-card:hover { border-color: rgba(0,255,245,0.2); }
+.pi-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pi-name { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+.pi-type { font-size: 16px; }
+.pi-type-label { font-size: 9px; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 1px; padding: 1px 6px; border-radius: 3px; background: rgba(0,255,245,0.08); color: var(--neon-cyan); margin-left: auto; }
+.pi-stats { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-bottom: 6px; }
+.pi-rec { font-size: 12px; color: var(--neon-cyan); line-height: 1.5; }
+.pi-model-rec { font-size: 11px; color: var(--neon-orange); margin-top: 6px; line-height: 1.5; }
+.pi-model-rec strong { color: #fff; }
+.pi-model-label { opacity: 0.7; }
+.pi-underutil { font-size: 10px; color: var(--neon-yellow); margin-top: 6px; font-family: var(--font-mono); opacity: 0.8; }
+.sources-section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-dim); }
+.sources-section ul { list-style: none; padding: 0; }
+.sources-section li { font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); padding: 3px 0; }
+.sources-section a { color: var(--neon-blue); text-decoration: none; }
+.sources-section a:hover { text-decoration: underline; }
+/* ── Workflow ── */
+.workflow-section { margin-top: 20px; }
+.workflow-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.workflow-col { padding: 16px; border-radius: 8px; }
+.workflow-col.current { background: rgba(255,68,68,0.05); border: 1px solid rgba(255,68,68,0.15); }
+.workflow-col.future { background: rgba(0,255,136,0.05); border: 1px solid rgba(0,255,136,0.15); }
+.wf-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; font-weight: 700; font-family: var(--font-mono); }
+.workflow-col.current .wf-label { color: var(--neon-red); }
+.workflow-col.future .wf-label { color: var(--neon-green); }
+.workflow-col p { font-size: 12px; line-height: 1.6; margin: 0; color: var(--text-secondary); }
+/* ── Animations ── */
+.animate-in { animation: fade-up 0.4s var(--ease-out) forwards; }
+@keyframes fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.neon-btn { background: linear-gradient(135deg, rgba(0,255,245,0.08), rgba(255,107,0,0.08)); border: 1px solid rgba(0,255,245,0.4); border-radius: 6px; color: var(--neon-cyan); font-family: var(--font-mono); font-size: 12px; font-weight: 600; padding: 10px 28px; cursor: pointer; text-transform: uppercase; letter-spacing: 2px; }
+
+/* ── GitHub corner ── */
+.github-corner { position: fixed; top: 0; right: 0; z-index: 999; }
+.github-corner svg { fill: var(--neon-orange); color: var(--bg-deep); }
+.github-corner:hover .octo-arm { animation: octocat-wave 560ms ease-in-out; }
+@keyframes octocat-wave { 0%,100% { transform: rotate(0); } 20%,60% { transform: rotate(-25deg); } 40%,80% { transform: rotate(10deg); } }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-scan"></div>
+  <div class="bg-vignette"></div>
+
+  <!-- GitHub Corner -->
+  <a href="https://github.com/vicarious11/agenttop" class="github-corner" target="_blank" rel="noopener" aria-label="View on GitHub">
+    <svg width="70" height="70" viewBox="0 0 250 250" style="position:absolute;top:0;right:0" aria-hidden="true">
+      <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path>
+      <path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin:130px 106px;" class="octo-arm"></path>
+      <path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C ## 194.5,69.0 197.7,73.2 200.1,77.6 C ## 213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C ## 181.9,128.9 168.3,122.5 157.7,114.1 C ## 157.9,116.9 156.7,120.9 152.7,124.9 L ## 141.0,136.5 C139.8,137.7 141.6,141.9 141.8,googl 141.8 Z" fill="currentColor"></path>
+    </svg>
+  </a>
+
+  <header id="topbar">
+    <div class="logo">
+      <div class="logo-glyph">
+        <svg width="28" height="28" viewBox="0 0 28 28">
+          <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="none" stroke="#ff6b00" stroke-width="1.5" class="logo-hex-spin"/>
+          <circle cx="14" cy="14" r="4" fill="#ff6b00" class="logo-core"/>
+          <line x1="14" y1="2" x2="14" y2="10" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="26" y1="8" x2="18" y2="12" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="26" y1="20" x2="18" y2="16" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="14" y1="26" x2="14" y2="18" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="2" y1="20" x2="10" y2="16" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+          <line x1="2" y1="8" x2="10" y2="12" stroke="#ff6b00" stroke-width="1" opacity="0.5"/>
+        </svg>
+      </div>
+      <span class="logo-text">agent<span class="accent">top</span></span>
+      <span class="logo-tag">v0.1</span>
+    </div>
+    <div id="stats-ribbon" class="stats-ribbon"></div>
+    <div class="topbar-right">
+      <div class="live-indicator">
+        <span class="live-dot"></span>
+        <span class="live-text">LIVE</span>
+      </div>
+      <select id="time-range" class="neon-select">
+        <option value="0" selected>All Time</option>
+        <option value="1">Today</option>
+        <option value="7">7 Days</option>
+        <option value="30">30 Days</option>
+      </select>
+    </div>
+  </header>
+
+  <main id="main">
+    <div id="graph-container" class="glass-panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="panel-icon">◈</span> Knowledge Graph</div>
+        <div class="graph-legend" id="graph-legend"></div>
+      </div>
+      <div id="graph-area"><svg id="graph-svg"></svg></div>
+    </div>
+    <div id="data-column">
+      <div id="model-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">⬡</span> Model Usage</div>
+          <div class="model-legend">
+            <span class="ml-dot ml-input"></span>Input
+            <span class="ml-dot ml-output"></span>Output
+            <span class="ml-dot ml-cache"></span>Cache
+          </div>
+        </div>
+        <div id="model-content" class="panel-body"></div>
+      </div>
+      <div id="hourly-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">◰</span> Hourly Activity</div>
+          <div id="hourly-total" class="panel-badge"></div>
+        </div>
+        <div id="hourly-content" class="panel-body"></div>
+      </div>
+      <div id="sessions-panel" class="glass-panel mini-panel sessions-stretch">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">▣</span> Recent Sessions</div>
+          <div id="sessions-count" class="panel-badge"></div>
+        </div>
+        <div id="sessions-content" class="panel-body"></div>
+      </div>
+      <div id="cost-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">◇</span> Cost Breakdown</div>
+          <div id="cost-total-badge" class="panel-badge cost-badge"></div>
+        </div>
+        <div id="cost-content" class="panel-body"></div>
+      </div>
+    </div>
+  </main>
+
+  <div id="tool-bar" class="tool-bar"></div>
+
+  <div id="optimizer-drawer" class="glass-panel drawer collapsed">
+    <div class="drawer-handle" id="drawer-toggle">
+      <div class="drawer-handle-left">
+        <span class="drawer-icon">⬡</span>
+        <span class="drawer-title">AI Usage Optimizer — Score: 82/100</span>
+      </div>
+      <div class="drawer-controls">
+        <span class="drawer-fullscreen-btn" id="drawer-fullscreen" title="Toggle fullscreen">⛶</span>
+        <span class="drawer-chevron" id="drawer-chevron">▲</span>
+      </div>
+    </div>
+    <div id="optimizer-content" class="drawer-body"></div>
+  </div>
+
+  <div id="tooltip" class="tooltip"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   DEMO DATA — Sci-Fi Themed
+   ═══════════════════════════════════════════════════════════ */
+
+const TOOL_COLORS = {
+  claude_code: '#ff6b00', cursor: '#00fff5', kiro: '#00ff88',
+  copilot: '#4488ff', codex: '#ff00ff', windsurf: '#ffee00',
+};
+
+const DEMO_STATS = [
+  { tool: 'claude_code', display_name: 'Claude Code', status: 'active', tokens_today: 4832190, messages_today: 1847, sessions_today: 42, estimated_cost_today: 127.44, hourly_tokens: [0,0,0,0,0,12000,48000,189000,412000,534000,621000,498000,389000,467000,523000,412000,378000,298000,189000,143000,98000,45000,12000,0] },
+  { tool: 'cursor', display_name: 'Cursor', status: 'active', tokens_today: 2156780, messages_today: 923, sessions_today: 31, estimated_cost_today: 54.22, hourly_tokens: [0,0,0,0,0,8000,32000,156000,289000,345000,298000,267000,234000,312000,267000,223000,189000,156000,98000,67000,34000,12000,0,0] },
+  { tool: 'kiro', display_name: 'Kiro', status: 'active', tokens_today: 987650, messages_today: 412, sessions_today: 18, estimated_cost_today: 18.90, hourly_tokens: [0,0,0,0,0,0,12000,67000,134000,189000,167000,145000,123000,156000,134000,112000,89000,67000,34000,23000,0,0,0,0] },
+  { tool: 'copilot', display_name: 'Copilot', status: 'active', tokens_today: 1567230, messages_today: 678, sessions_today: 24, estimated_cost_today: 31.88, hourly_tokens: [0,0,0,0,0,4000,23000,112000,198000,256000,234000,198000,167000,223000,198000,178000,145000,112000,67000,45000,23000,8000,0,0] },
+  { tool: 'codex', display_name: 'Codex', status: 'idle', tokens_today: 445670, messages_today: 198, sessions_today: 8, estimated_cost_today: 12.34, hourly_tokens: [0,0,0,0,0,0,0,34000,67000,89000,78000,67000,56000,78000,67000,45000,34000,23000,12000,0,0,0,0,0] },
+  { tool: 'windsurf', display_name: 'Windsurf', status: 'idle', tokens_today: 234500, messages_today: 134, sessions_today: 6, estimated_cost_today: 6.78, hourly_tokens: [0,0,0,0,0,0,0,12000,34000,56000,45000,34000,23000,45000,34000,23000,12000,8000,0,0,0,0,0,0] },
+];
+
+const DEMO_MODELS = {
+  'claude-opus-4-6': { inputTokens: 1245000, outputTokens: 2890000, cacheReadInputTokens: 3456000 },
+  'claude-sonnet-4-6': { inputTokens: 2134000, outputTokens: 1678000, cacheReadInputTokens: 5890000 },
+  'claude-haiku-4-5': { inputTokens: 890000, outputTokens: 567000, cacheReadInputTokens: 1234000 },
+  'gpt-4o': { inputTokens: 1567000, outputTokens: 1234000, cacheReadInputTokens: 2345000 },
+};
+
+const DEMO_HOURS = {};
+for (let i = 0; i < 24; i++) {
+  const v = [0,0,0,0,0,24,115,570,1134,1469,1443,1209,992,1281,1223,993,847,664,400,278,155,65,12,0];
+  DEMO_HOURS[String(i)] = v[i];
+}
+
+const SCI_FI_PROJECTS = [
+  { name: 'PROMETHEUS', tool: 'claude_code', dur: '6.2h', msgs: 142, tokens: 1345670, lines: 4812, time: '2h ago' },
+  { name: 'HYPERION', tool: 'cursor', dur: '4.8h', msgs: 89, tokens: 892340, lines: 3201, time: '3h ago' },
+  { name: 'LEVIATHAN', tool: 'claude_code', dur: '5.7h', msgs: 123, tokens: 1123400, lines: 3945, time: '4h ago' },
+  { name: 'EREBUS', tool: 'kiro', dur: '3.1h', msgs: 67, tokens: 567120, lines: 1834, time: '5h ago' },
+  { name: 'RAGNAROK', tool: 'copilot', dur: '4.2h', msgs: 78, tokens: 712340, lines: 2567, time: '6h ago' },
+  { name: 'KRONOS-ENGINE', tool: 'claude_code', dur: '3.4h', msgs: 71, tokens: 645230, lines: 2190, time: '7h ago' },
+  { name: 'VALKYRIE', tool: 'cursor', dur: '2.8h', msgs: 56, tokens: 478120, lines: 1678, time: '8h ago' },
+  { name: 'CERBERUS', tool: 'codex', dur: '2.3h', msgs: 52, tokens: 478900, lines: 1543, time: '9h ago' },
+  { name: 'CHIMERA', tool: 'kiro', dur: '1.9h', msgs: 44, tokens: 389000, lines: 1290, time: '10h ago' },
+  { name: 'AEGIS-PROTOCOL', tool: 'windsurf', dur: '2.1h', msgs: 41, tokens: 356780, lines: 1156, time: '11h ago' },
+  { name: 'TITAN', tool: 'claude_code', dur: '3.8h', msgs: 48, tokens: 412300, lines: 1423, time: '12h ago' },
+  { name: 'PANDORA', tool: 'copilot', dur: '1.7h', msgs: 37, tokens: 345670, lines: 1102, time: '14h ago' },
+  { name: 'SENTINEL', tool: 'cursor', dur: '2.6h', msgs: 39, tokens: 334560, lines: 1067, time: '16h ago' },
+  { name: 'ARCHON', tool: 'claude_code', dur: '2.4h', msgs: 34, tokens: 312450, lines: 989, time: '18h ago' },
+  { name: 'OBLIVION', tool: 'codex', dur: '1.5h', msgs: 33, tokens: 289000, lines: 912, time: '20h ago' },
+  { name: 'GENESIS', tool: 'kiro', dur: '2.0h', msgs: 28, tokens: 234560, lines: 745, time: '1d ago' },
+  { name: 'HARBINGER', tool: 'claude_code', dur: '1.4h', msgs: 26, tokens: 223450, lines: 678, time: '1d ago' },
+  { name: 'NEXUS-PRIME', tool: 'cursor', dur: '1.2h', msgs: 22, tokens: 198760, lines: 534, time: '1d ago' },
+  { name: 'PHANTOM', tool: 'copilot', dur: '1.1h', msgs: 19, tokens: 178900, lines: 423, time: '2d ago' },
+  { name: 'ECLIPSE', tool: 'windsurf', dur: '0.8h', msgs: 31, tokens: 267890, lines: 812, time: '2d ago' },
+];
+
+const DEMO_GRAPH = {
+  nodes: [
+    { id: 'user', label: 'You', type: 'center', layer: 0, value: 10224020, color: '#ffffff' },
+    // Tools
+    { id: 'claude_code', label: 'Claude Code', type: 'tool', layer: 1, value: 4832190, color: '#ff6b00', status: 'active', tokens: 4832190, messages: 1847, sessions: 42, cost: 127.44 },
+    { id: 'cursor', label: 'Cursor', type: 'tool', layer: 1, value: 2156780, color: '#00fff5', status: 'active', tokens: 2156780, messages: 923, sessions: 31, cost: 54.22 },
+    { id: 'kiro', label: 'Kiro', type: 'tool', layer: 1, value: 987650, color: '#00ff88', status: 'active', tokens: 987650, messages: 412, sessions: 18, cost: 18.90 },
+    { id: 'copilot', label: 'Copilot', type: 'tool', layer: 1, value: 1567230, color: '#4488ff', status: 'active', tokens: 1567230, messages: 678, sessions: 24, cost: 31.88 },
+    { id: 'codex', label: 'Codex', type: 'tool', layer: 1, value: 445670, color: '#ff00ff', status: 'idle', tokens: 445670, messages: 198, sessions: 8, cost: 12.34 },
+    { id: 'windsurf', label: 'Windsurf', type: 'tool', layer: 1, value: 234500, color: '#ffee00', status: 'idle', tokens: 234500, messages: 134, sessions: 6, cost: 6.78 },
+    // Models
+    { id: 'opus', label: 'Opus 4.6', type: 'model', layer: 2, value: 7591000, color: '#ff6b00', inputTokens: 1245000, outputTokens: 2890000, cacheRead: 3456000 },
+    { id: 'sonnet', label: 'Sonnet 4.6', type: 'model', layer: 2, value: 9702000, color: '#ff9944', inputTokens: 2134000, outputTokens: 1678000, cacheRead: 5890000 },
+    { id: 'haiku', label: 'Haiku 4.5', type: 'model', layer: 2, value: 2691000, color: '#ffcc88', inputTokens: 890000, outputTokens: 567000, cacheRead: 1234000 },
+    { id: 'gpt4o', label: 'GPT-4o', type: 'model', layer: 2, value: 5146000, color: '#00ff88', inputTokens: 1567000, outputTokens: 1234000, cacheRead: 2345000 },
+    // Projects
+    { id: 'prometheus', label: 'PROMETHEUS', type: 'project', layer: 3, value: 1345670, color: '#6644ff' },
+    { id: 'hyperion', label: 'HYPERION', type: 'project', layer: 3, value: 892340, color: '#6644ff' },
+    { id: 'leviathan', label: 'LEVIATHAN', type: 'project', layer: 3, value: 1123400, color: '#6644ff' },
+    { id: 'erebus', label: 'EREBUS', type: 'project', layer: 3, value: 567120, color: '#6644ff' },
+    { id: 'ragnarok', label: 'RAGNAROK', type: 'project', layer: 3, value: 712340, color: '#6644ff' },
+    { id: 'kronos', label: 'KRONOS', type: 'project', layer: 3, value: 645230, color: '#6644ff' },
+    { id: 'titan', label: 'TITAN', type: 'project', layer: 3, value: 412300, color: '#6644ff' },
+    { id: 'cerberus', label: 'CERBERUS', type: 'project', layer: 3, value: 478900, color: '#6644ff' },
+    // Features
+    { id: 'tab_complete', label: 'Tab Complete', type: 'feature', layer: 2, value: 23450, color: '#00fff5', count: 23450 },
+    { id: 'inline_edit', label: 'Inline Edit', type: 'feature', layer: 2, value: 8920, color: '#00fff5', count: 8920 },
+    // Metrics
+    { id: 'ai_code', label: 'AI Code Ratio', type: 'metric', layer: 2, value: 78, color: '#00ff88', ai_pct: 78, ai_lines: 34521, human_lines: 9712 },
+  ],
+  edges: [
+    // User -> Tools
+    { source: 'user', target: 'claude_code', value: 4832190, edgeType: 'token_flow', label: '4.8M tok' },
+    { source: 'user', target: 'cursor', value: 2156780, edgeType: 'token_flow', label: '2.2M tok' },
+    { source: 'user', target: 'kiro', value: 987650, edgeType: 'token_flow', label: '988K tok' },
+    { source: 'user', target: 'copilot', value: 1567230, edgeType: 'token_flow', label: '1.6M tok' },
+    { source: 'user', target: 'codex', value: 445670, edgeType: 'token_flow', label: '446K tok' },
+    { source: 'user', target: 'windsurf', value: 234500, edgeType: 'token_flow', label: '235K tok' },
+    // Tools -> Models
+    { source: 'claude_code', target: 'opus', value: 3200000, edgeType: 'model_usage' },
+    { source: 'claude_code', target: 'sonnet', value: 1600000, edgeType: 'model_usage' },
+    { source: 'cursor', target: 'sonnet', value: 1800000, edgeType: 'model_usage' },
+    { source: 'cursor', target: 'gpt4o', value: 350000, edgeType: 'model_usage' },
+    { source: 'kiro', target: 'sonnet', value: 650000, edgeType: 'model_usage' },
+    { source: 'kiro', target: 'haiku', value: 340000, edgeType: 'model_usage' },
+    { source: 'copilot', target: 'gpt4o', value: 1500000, edgeType: 'model_usage' },
+    { source: 'codex', target: 'gpt4o', value: 400000, edgeType: 'model_usage' },
+    { source: 'windsurf', target: 'sonnet', value: 200000, edgeType: 'model_usage' },
+    { source: 'windsurf', target: 'haiku', value: 34500, edgeType: 'model_usage' },
+    // Tools -> Projects
+    { source: 'claude_code', target: 'prometheus', value: 1345670, edgeType: 'project_work' },
+    { source: 'cursor', target: 'hyperion', value: 892340, edgeType: 'project_work' },
+    { source: 'claude_code', target: 'leviathan', value: 1123400, edgeType: 'project_work' },
+    { source: 'kiro', target: 'erebus', value: 567120, edgeType: 'project_work' },
+    { source: 'copilot', target: 'ragnarok', value: 712340, edgeType: 'project_work' },
+    { source: 'claude_code', target: 'kronos', value: 645230, edgeType: 'project_work' },
+    { source: 'claude_code', target: 'titan', value: 412300, edgeType: 'project_work' },
+    { source: 'codex', target: 'cerberus', value: 478900, edgeType: 'project_work' },
+    // Features
+    { source: 'cursor', target: 'tab_complete', value: 23450, edgeType: 'feature_usage' },
+    { source: 'cursor', target: 'inline_edit', value: 8920, edgeType: 'feature_usage' },
+    // Code gen
+    { source: 'claude_code', target: 'ai_code', value: 34521, edgeType: 'code_gen' },
+    { source: 'copilot', target: 'ai_code', value: 12000, edgeType: 'code_gen' },
+  ]
+};
+
+/* ═══════════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════════ */
+function formatNum(n) {
+  if (n == null) return '0';
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+function formatCost(n) {
+  if (n == null || n === 0) return '$0';
+  if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+  if (n >= 1) return '$' + n.toFixed(2);
+  return '$' + n.toFixed(3);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STATS RIBBON
+   ═══════════════════════════════════════════════════════════ */
+function renderStats() {
+  const ribbon = document.getElementById('stats-ribbon');
+  const totals = {
+    tokens: DEMO_STATS.reduce((s, t) => s + t.tokens_today, 0),
+    cost: DEMO_STATS.reduce((s, t) => s + t.estimated_cost_today, 0),
+    sessions: DEMO_STATS.reduce((s, t) => s + t.sessions_today, 0),
+    messages: DEMO_STATS.reduce((s, t) => s + t.messages_today, 0),
+    tools: DEMO_STATS.filter(t => t.status === 'active').length,
+  };
+  const items = [
+    { key: 'tokens', label: 'Tokens', value: formatNum(totals.tokens), color: 'var(--neon-cyan)' },
+    { key: 'cost', label: 'Cost', value: formatCost(totals.cost), color: 'var(--neon-orange)' },
+    { key: 'sessions', label: 'Sessions', value: totals.sessions.toLocaleString(), color: 'var(--neon-green)' },
+    { key: 'messages', label: 'Messages', value: formatNum(totals.messages), color: 'var(--neon-magenta)' },
+    { key: 'tools', label: 'Active', value: `${totals.tools}/${DEMO_STATS.length}`, color: 'var(--neon-blue)' },
+  ];
+  ribbon.innerHTML = items.map(item => `
+    <div class="stat-card">
+      <div class="stat-value" style="color:${item.color}" id="stat-${item.key}">${item.value}</div>
+      <div class="stat-label">${item.label}</div>
+      <svg class="stat-spark" id="spark-${item.key}"></svg>
+    </div>
+  `).join('');
+
+  // Sparklines
+  const hourly = new Array(24).fill(0);
+  DEMO_STATS.forEach(t => t.hourly_tokens.forEach((v, i) => { if (i < 24) hourly[i] += v; }));
+  drawSparkline('spark-tokens', hourly, 'var(--neon-cyan)');
+  const msgH = new Array(24).fill(0);
+  DEMO_STATS.forEach(t => t.hourly_tokens.forEach((v, i) => { if (i < 24) msgH[i] += v > 0 ? 1 : 0; }));
+  drawSparkline('spark-messages', msgH, 'var(--neon-magenta)');
+}
+
+function drawSparkline(id, data, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const w = 56, h = 14, max = Math.max(...data, 1);
+  const line = d3.line().x((_, i) => (i / (data.length - 1)) * w).y(d => h - 1 - (d / max) * (h - 3)).curve(d3.curveBasis);
+  const svg = d3.select(`#${id}`).attr('viewBox', `0 0 ${w} ${h}`);
+  svg.selectAll('*').remove();
+  svg.append('path').attr('d', line(data)).style('stroke', color);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOOL BAR
+   ═══════════════════════════════════════════════════════════ */
+function renderToolBar() {
+  document.getElementById('tool-bar').innerHTML = DEMO_STATS.map(s => {
+    const color = TOOL_COLORS[s.tool] || '#888';
+    const cls = s.status === 'active' ? 'active' : 'idle';
+    const val = s.tokens_today > 0 ? formatNum(s.tokens_today) : 'idle';
+    return `<div class="tool-chip ${cls}">
+      <span class="dot" style="background:${color};color:${color}"></span>
+      <span>${s.display_name}</span>
+      <span class="chip-value">${val}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PANELS
+   ═══════════════════════════════════════════════════════════ */
+function renderModels() {
+  const MODEL_COLORS = { opus: '#ff6b00', sonnet: '#ff9944', haiku: '#ffcc88', gpt4o: '#00ff88' };
+  const MODEL_PRICING = { opus: { input: 15, output: 75, cache: 1.875 }, sonnet: { input: 3, output: 15, cache: 0.30 }, haiku: { input: 0.80, output: 4, cache: 0.08 }, gpt4o: { input: 2.5, output: 10, cache: 0.5 } };
+  const getFamily = id => { if (id.includes('opus')) return 'opus'; if (id.includes('sonnet')) return 'sonnet'; if (id.includes('haiku')) return 'haiku'; return 'gpt4o'; };
+  const getName = id => { if (id.includes('opus')) return 'Opus 4.6'; if (id.includes('sonnet')) return 'Sonnet 4.6'; if (id.includes('haiku')) return 'Haiku 4.5'; return 'GPT-4o'; };
+
+  const models = Object.entries(DEMO_MODELS).map(([id, u]) => {
+    const fam = getFamily(id);
+    const p = MODEL_PRICING[fam];
+    const input = u.inputTokens, output = u.outputTokens, cache = u.cacheReadInputTokens;
+    const total = input + output + cache;
+    const cost = (input * p.input + output * p.output + cache * p.cache) / 1e6;
+    return { name: getName(id), input, output, cache, total, cost, color: MODEL_COLORS[fam] };
+  }).sort((a, b) => b.total - a.total);
+
+  const maxTotal = Math.max(...models.map(m => m.total), 1);
+  document.getElementById('model-content').innerHTML = models.map(m => {
+    const iPct = (m.input / maxTotal * 100).toFixed(2);
+    const oPct = (m.output / maxTotal * 100).toFixed(2);
+    const cPct = (m.cache / maxTotal * 100).toFixed(2);
+    return `<div class="model-row"><div class="model-info">
+      <span class="model-name" style="color:${m.color}">${m.name}</span>
+      <span class="model-stats"><span class="model-tokens">${formatNum(m.total)}</span><span class="model-cost">${formatCost(m.cost)}</span></span>
+    </div><div class="model-bar-track">
+      <div class="model-seg seg-input" style="width:${iPct}%"></div>
+      <div class="model-seg seg-output" style="width:${oPct}%"></div>
+      <div class="model-seg seg-cache" style="width:${cPct}%"></div>
+    </div></div>`;
+  }).join('');
+}
+
+function renderHourly() {
+  const hours = Array.from({ length: 24 }, (_, i) => ({ hour: i, count: DEMO_HOURS[String(i)] || 0 }));
+  const total = hours.reduce((s, h) => s + h.count, 0);
+  const max = Math.max(...hours.map(h => h.count), 1);
+  const now = 14; // Fake "current hour" for demo
+  document.getElementById('hourly-total').textContent = `${formatNum(total)} events`;
+  document.getElementById('hourly-content').innerHTML = `<div class="hourly-chart">${hours.map(h => {
+    const pct = Math.max((h.count / max * 100), 2);
+    const isNow = h.hour === now;
+    const opacity = 0.25 + (h.count / max) * 0.75;
+    const showLabel = h.hour % 4 === 0;
+    const label = h.hour === 0 ? '12a' : h.hour < 12 ? `${h.hour}a` : h.hour === 12 ? '12p' : `${h.hour - 12}p`;
+    return `<div class="hour-col ${isNow ? 'hour-now' : ''}">
+      <div class="hour-bar-wrap"><div class="hour-bar" style="height:${pct}%;opacity:${opacity}"></div></div>
+      ${showLabel ? `<div class="hour-label">${label}</div>` : '<div class="hour-label-spacer"></div>'}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderSessions() {
+  document.getElementById('sessions-count').textContent = `${SCI_FI_PROJECTS.length} total`;
+  document.getElementById('sessions-content').innerHTML = `<div class="sessions-list">${SCI_FI_PROJECTS.map((s, i) => {
+    const color = TOOL_COLORS[s.tool] || '#888';
+    return `<div class="session-row" style="animation-delay:${i * 30}ms">
+      <span class="session-dot" style="background:${color};box-shadow:0 0 4px ${color}"></span>
+      <span class="session-project">${s.name}</span>
+      <span class="session-badge session-dur">${s.dur}</span>
+      <span class="session-badge session-msgs">${s.msgs} msg</span>
+      ${s.lines ? `<span class="session-badge session-lines">${formatNum(s.lines)} loc</span>` : ''}
+      <span class="session-tokens">${formatNum(s.tokens)}</span>
+      <span class="session-time">${s.time}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderCost() {
+  const items = DEMO_STATS.filter(s => s.estimated_cost_today > 0).sort((a, b) => b.estimated_cost_today - a.estimated_cost_today);
+  const totalCost = items.reduce((s, i) => s + i.estimated_cost_today, 0);
+  const totalTokens = items.reduce((s, i) => s + i.tokens_today, 0);
+  const maxCost = Math.max(...items.map(i => i.estimated_cost_today), 0.01);
+  document.getElementById('cost-total-badge').textContent = formatCost(totalCost);
+  document.getElementById('cost-content').innerHTML = `
+    <div class="cost-summary">
+      <div class="cost-sum-item"><span class="cost-sum-val" style="color:var(--neon-orange)">${formatCost(totalCost)}</span><span class="cost-sum-label">total cost</span></div>
+      <div class="cost-sum-item"><span class="cost-sum-val" style="color:var(--neon-cyan)">${formatNum(totalTokens)}</span><span class="cost-sum-label">total tokens</span></div>
+      <div class="cost-sum-item"><span class="cost-sum-val" style="color:var(--neon-green)">$${(totalCost / totalTokens * 1e6).toFixed(2)}</span><span class="cost-sum-label">per M tokens</span></div>
+    </div>
+    ${items.map(s => {
+      const pct = Math.max((s.estimated_cost_today / maxCost * 100), 1).toFixed(1);
+      const color = TOOL_COLORS[s.tool] || '#888';
+      return `<div class="cost-row"><div class="cost-info"><span class="cost-dot" style="background:${color}"></span><span class="cost-name">${s.display_name}</span></div>
+        <div class="cost-bar-track"><div class="cost-bar-fill" style="width:${pct}%;background:${color};box-shadow:0 0 8px ${color}40"></div></div>
+        <span class="cost-value">${formatCost(s.estimated_cost_today)}</span></div>`;
+    }).join('')}`;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   D3 FORCE GRAPH
+   ═══════════════════════════════════════════════════════════ */
+function renderGraph() {
+  const data = DEMO_GRAPH;
+  const area = document.getElementById('graph-area');
+  const rect = area.getBoundingClientRect();
+  const W = rect.width, H = rect.height;
+
+  const EDGE_STYLES = {
+    token_flow: { dash: 'none', opacity: 0.35, particleColor: '#ff6b00' },
+    message_flow: { dash: '8,4', opacity: 0.25, particleColor: '#00fff5' },
+    model_usage: { dash: 'none', opacity: 0.20, particleColor: null },
+    project_work: { dash: '4,3', opacity: 0.15, particleColor: null },
+    feature_usage: { dash: '3,2', opacity: 0.18, particleColor: '#00fff5' },
+    code_gen: { dash: '6,2,2,2', opacity: 0.22, particleColor: '#00ff88' },
+  };
+
+  d3.select('#graph-svg').selectAll('*').remove();
+  const svg = d3.select('#graph-svg').attr('width', W).attr('height', H).attr('viewBox', `0 0 ${W} ${H}`);
+
+  const defs = svg.append('defs');
+  ['glow', 'glow-strong', 'glow-soft'].forEach((id, i) => {
+    const f = defs.append('filter').attr('id', id).attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
+    f.append('feGaussianBlur').attr('stdDeviation', [3, 7, 2][i]).attr('result', 'blur');
+    const m = f.append('feMerge'); m.append('feMergeNode').attr('in', 'blur'); m.append('feMergeNode').attr('in', 'SourceGraphic');
+  });
+  const cg = defs.append('radialGradient').attr('id', 'center-grad');
+  cg.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(255,255,255,0.15)');
+  cg.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(255,255,255,0)');
+
+  ['#ff6b00','#00fff5','#00ff88','#6644ff','#ff9944','#ffcc88','#4488ff','#ffffff','#ffee00','#ff00ff','#ff4444'].forEach(color => {
+    defs.append('marker').attr('id', `arrow-${color.replace('#', '')}`).attr('viewBox', '0 0 10 6').attr('refX', 10).attr('refY', 3).attr('markerWidth', 8).attr('markerHeight', 5).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,0 L10,3 L0,6').attr('fill', color).attr('opacity', 0.4);
+  });
+
+  const container = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.2, 5]).on('zoom', e => container.attr('transform', e.transform)));
+
+  const nodeMap = new Map(data.nodes.map(n => [n.id, { ...n }]));
+  const nodes = Array.from(nodeMap.values());
+  const edges = data.edges.filter(e => nodeMap.has(e.source) && nodeMap.has(e.target)).map(e => ({ ...e }));
+
+  const maxVal = Math.max(...nodes.map(n => n.value || 1), 1);
+  const logScale = v => Math.log2((v || 1) + 1) / Math.log2(maxVal + 1);
+  const nodeRadius = n => {
+    if (n.type === 'center') return 28;
+    if (n.type === 'tool') return 14 + logScale(n.value) * 20;
+    if (n.type === 'model') return 10 + logScale(n.value) * 14;
+    if (n.type === 'metric') return 12 + logScale(n.value) * 10;
+    if (n.type === 'feature') return 8 + logScale(n.value) * 10;
+    return 6 + logScale(n.value) * 10;
+  };
+
+  const layerX = { 0: W * 0.08, 1: W * 0.30, 2: W * 0.58, 3: W * 0.85 };
+
+  const simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(d => {
+      const sl = typeof d.source === 'object' ? (d.source.layer || 0) : 0;
+      const tl = typeof d.target === 'object' ? (d.target.layer || 0) : 0;
+      const gap = Math.abs(sl - tl);
+      return gap === 0 ? 60 : gap === 1 ? 150 : 250;
+    }).strength(0.15))
+    .force('x', d3.forceX().x(d => layerX[d.layer] || W * 0.5).strength(1.2))
+    .force('y', d3.forceY().y(H / 2).strength(0.04))
+    .force('collide', d3.forceCollide().radius(d => nodeRadius(d) + 20))
+    .velocityDecay(0.45);
+
+  const edgeGroup = container.append('g');
+  const edgePaths = edgeGroup.selectAll('path').data(edges).join('path')
+    .attr('stroke', d => { const src = typeof d.source === 'object' ? d.source : nodeMap.get(d.source); return src?.color || '#333'; })
+    .attr('stroke-width', d => { const base = d.edgeType === 'token_flow' ? 1.5 : 0.8; return base + logScale(d.value) * 3; })
+    .attr('stroke-dasharray', d => (EDGE_STYLES[d.edgeType] || {}).dash || 'none')
+    .attr('stroke-opacity', d => (EDGE_STYLES[d.edgeType] || {}).opacity || 0.2)
+    .attr('marker-end', d => { const src = typeof d.source === 'object' ? d.source : nodeMap.get(d.source); return `url(#arrow-${(src?.color || '#333').replace('#', '')})`; });
+
+  const edgeLabelGroup = container.append('g');
+  const edgeLabels = edgeLabelGroup.selectAll('text').data(edges).join('text').attr('class', 'edge-label').attr('text-anchor', 'middle').attr('dy', -4).text(d => d.label || '').style('opacity', 0);
+
+  const particleGroup = container.append('g');
+  const nodeGroup = container.append('g');
+  const nodeEls = nodeGroup.selectAll('g').data(nodes).join('g').attr('class', d => `node node-${d.type}`).style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = layerX[d.layer] || d.x; d.fy = d.y; })
+      .on('drag', (e, d) => { d.fx = layerX[d.layer] || d.x; d.fy = e.y; })
+      .on('end', (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+    );
+
+  nodeEls.each(function(d) {
+    const g = d3.select(this), r = nodeRadius(d);
+    if (d.type === 'center') {
+      g.append('circle').attr('r', r + 20).attr('fill', 'url(#center-grad)').attr('opacity', 0.5);
+      g.append('circle').attr('r', r + 8).attr('fill', 'none').attr('stroke', '#fff').attr('stroke-width', 0.5).attr('opacity', 0.2).attr('class', 'ring-pulse');
+      g.append('circle').attr('r', r).attr('fill', 'rgba(255,255,255,0.04)').attr('stroke', '#fff').attr('stroke-width', 1.5).attr('filter', 'url(#glow-strong)');
+      g.append('text').attr('class', 'node-label node-label-center').attr('dy', 4).text(d.label);
+    } else if (d.type === 'tool') {
+      g.append('circle').attr('r', r + 4).attr('fill', 'none').attr('stroke', d.color).attr('stroke-width', 0.5).attr('opacity', d.status === 'active' ? 0.3 : 0.1).attr('stroke-dasharray', d.status === 'active' ? 'none' : '2,3');
+      g.append('circle').attr('r', r).attr('fill', d.color + '15').attr('stroke', d.color).attr('stroke-width', 1.5).attr('filter', 'url(#glow)');
+      g.append('text').attr('text-anchor', 'middle').attr('dy', 5).attr('font-size', Math.max(10, r * 0.7)).attr('font-weight', '700').attr('font-family', "'SF Mono', monospace").attr('fill', d.color).text(d.label[0]);
+      g.append('text').attr('class', 'node-label node-label-bright').attr('dy', r + 14).text(d.label);
+      const sub = d.tokens > 0 ? formatNum(d.tokens) + ' tok' : '';
+      if (sub) g.append('text').attr('class', 'node-label').attr('dy', r + 24).attr('font-size', '8px').attr('fill', d.color).attr('opacity', 0.6).text(sub);
+    } else if (d.type === 'model') {
+      const pts = d3.range(6).map(i => { const a = (i * 60 - 30) * Math.PI / 180; return [Math.cos(a) * r, Math.sin(a) * r]; });
+      g.append('polygon').attr('points', pts.map(p => p.join(',')).join(' ')).attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1.2).attr('filter', 'url(#glow-soft)');
+      g.append('text').attr('class', 'node-label node-label-bright').attr('dy', r + 13).text(d.label);
+    } else if (d.type === 'project') {
+      const s = r;
+      g.append('polygon').attr('points', `0,${-s} ${s},0 0,${s} ${-s},0`).attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1).attr('filter', 'url(#glow-soft)');
+      g.append('text').attr('class', 'node-label').attr('dy', r + 12).attr('font-size', '9px').text(d.label);
+    } else if (d.type === 'feature') {
+      g.append('rect').attr('x', -r * 1.3).attr('y', -r * 0.7).attr('width', r * 2.6).attr('height', r * 1.4).attr('rx', 4).attr('fill', d.color + '10').attr('stroke', d.color).attr('stroke-width', 1).attr('filter', 'url(#glow-soft)');
+      g.append('text').attr('class', 'node-label node-label-bright').attr('dy', 3).attr('font-size', '9px').text(d.label);
+      if (d.count) g.append('text').attr('class', 'node-label').attr('dy', r * 0.7 + 12).attr('font-size', '8px').attr('fill', d.color).attr('opacity', 0.6).text(d.count.toLocaleString());
+    } else if (d.type === 'metric') {
+      const s = r * 0.9;
+      g.append('rect').attr('x', -s).attr('y', -s).attr('width', s * 2).attr('height', s * 2).attr('rx', 5).attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1.2).attr('filter', 'url(#glow-soft)');
+      g.append('text').attr('class', 'node-label node-label-bright').attr('dy', 3).attr('font-size', '9px').text(d.label);
+      if (d.ai_pct != null) {
+        const bw = s * 1.4, bh = 3, aiW = bw * (d.ai_pct / 100);
+        g.append('rect').attr('x', -bw / 2).attr('y', s + 6).attr('width', bw).attr('height', bh).attr('rx', 1).attr('fill', 'rgba(255,255,255,0.06)');
+        g.append('rect').attr('x', -bw / 2).attr('y', s + 6).attr('width', aiW).attr('height', bh).attr('rx', 1).attr('fill', d.color);
+      }
+    }
+  });
+
+  // Tooltip
+  const tooltip = document.getElementById('tooltip');
+  nodeEls.on('click', (event, d) => {
+    event.stopPropagation();
+    edgePaths.each(function(e) {
+      const sid = typeof e.source === 'object' ? e.source.id : e.source;
+      const tid = typeof e.target === 'object' ? e.target.id : e.target;
+      const connected = sid === d.id || tid === d.id;
+      d3.select(this).classed('highlighted', connected).classed('dimmed', !connected);
+    });
+    edgeLabels.each(function(e) {
+      const sid = typeof e.source === 'object' ? e.source.id : e.source;
+      const tid = typeof e.target === 'object' ? e.target.id : e.target;
+      d3.select(this).style('opacity', (sid === d.id || tid === d.id) ? 0.7 : 0);
+    });
+  });
+  svg.on('click', () => { edgePaths.classed('highlighted', false).classed('dimmed', false); edgeLabels.style('opacity', 0); });
+
+  nodeEls.on('mouseenter', (event, d) => {
+    let html = `<div class="tooltip-title" style="color:${d.color}"><span>${d.label}</span></div>`;
+    html += `<div class="tooltip-row"><span>Type</span><span class="val">${d.type}</span></div>`;
+    if (d.value) html += `<div class="tooltip-row"><span>Activity</span><span class="val">${formatNum(d.value)}</span></div>`;
+    if (d.tokens > 0) html += `<div class="tooltip-row"><span>Tokens</span><span class="val">${formatNum(d.tokens)}</span></div>`;
+    if (d.messages > 0) html += `<div class="tooltip-row"><span>Messages</span><span class="val">${formatNum(d.messages)}</span></div>`;
+    if (d.sessions > 0) html += `<div class="tooltip-row"><span>Sessions</span><span class="val">${d.sessions}</span></div>`;
+    if (d.cost) html += `<div class="tooltip-row"><span>Cost</span><span class="val">${formatCost(d.cost)}</span></div>`;
+    if (d.count) html += `<div class="tooltip-row"><span>Count</span><span class="val">${d.count.toLocaleString()}</span></div>`;
+    if (d.ai_lines != null) {
+      html += `<div class="tooltip-row"><span>AI Lines</span><span class="val">${d.ai_lines.toLocaleString()}</span></div>`;
+      html += `<div class="tooltip-row"><span>Human Lines</span><span class="val">${d.human_lines.toLocaleString()}</span></div>`;
+    }
+    if (d.cacheRead && d.inputTokens) {
+      const rate = ((d.cacheRead / (d.cacheRead + d.inputTokens)) * 100).toFixed(1);
+      html += `<div class="tooltip-row"><span>Cache Hit</span><span class="val">${rate}%</span></div>`;
+    }
+    tooltip.innerHTML = html;
+    tooltip.classList.add('visible');
+  });
+  nodeEls.on('mousemove', event => { tooltip.style.left = (event.clientX + 12) + 'px'; tooltip.style.top = (event.clientY - 12) + 'px'; });
+  nodeEls.on('mouseleave', () => tooltip.classList.remove('visible'));
+
+  // Tick
+  simulation.on('tick', () => {
+    edgePaths.attr('d', d => {
+      const sx = d.source.x, sy = d.source.y, tx = d.target.x, ty = d.target.y;
+      return `M${sx},${sy} C${(sx + tx) / 2},${sy} ${(sx + tx) / 2},${ty} ${tx},${ty}`;
+    });
+    edgeLabels.attr('x', d => (d.source.x + d.target.x) / 2).attr('y', d => (d.source.y + d.target.y) / 2);
+    nodeEls.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  // Particles
+  const particleEdges = edges.filter(e => (EDGE_STYLES[e.edgeType] || {}).particleColor);
+  if (particleEdges.length) {
+    const totalVal = particleEdges.reduce((s, e) => s + (e.value || 1), 0);
+    setInterval(() => {
+      let r = Math.random() * totalVal, edge = particleEdges[0];
+      for (const e of particleEdges) { r -= (e.value || 1); if (r <= 0) { edge = e; break; } }
+      const src = edge.source, tgt = edge.target;
+      if (!src?.x || !tgt?.x) return;
+      const color = (EDGE_STYLES[edge.edgeType] || {}).particleColor || '#00fff5';
+      const p = particleGroup.append('circle').attr('class', 'particle').attr('r', 1.5 + Math.random()).attr('fill', color).attr('filter', 'url(#glow-soft)').attr('cx', src.x).attr('cy', src.y).attr('opacity', 0.7);
+      const midX = (src.x + tgt.x) / 2, dur = 1200 + Math.random() * 800;
+      const timer = d3.timer(elapsed => {
+        const t = Math.min(elapsed / dur, 1), q = 1 - t;
+        p.attr('cx', q*q*q*src.x + 3*q*q*t*midX + 3*q*t*t*midX + t*t*t*tgt.x)
+         .attr('cy', q*q*q*src.y + 3*q*q*t*src.y + 3*q*t*t*tgt.y + t*t*t*tgt.y)
+         .attr('opacity', 0.7 * (1 - t * 0.6));
+        if (t >= 1) { p.remove(); timer.stop(); }
+      });
+    }, 180);
+  }
+
+  // Legend
+  document.getElementById('graph-legend').innerHTML = `
+    <div class="legend-item"><span class="legend-shape legend-circle" style="background:rgba(255,255,255,0.6);border-color:rgba(255,255,255,0.6)"></span>You</div>
+    <div class="legend-item"><span class="legend-shape legend-circle" style="background:rgba(255,107,0,0.3);border-color:#ff6b00"></span>Tool</div>
+    <div class="legend-item"><span class="legend-shape legend-hex" style="background:rgba(255,153,68,0.3);border-color:#ff9944"></span>Model</div>
+    <div class="legend-item"><span class="legend-shape legend-diamond" style="background:rgba(102,68,255,0.3);border-color:#6644ff"></span>Project</div>
+    <div class="legend-item"><span class="legend-shape legend-rect" style="background:rgba(0,255,245,0.3);border-color:#00fff5"></span>Feature</div>
+    <div class="legend-item"><span class="legend-shape legend-rect" style="background:rgba(0,255,136,0.3);border-color:#00ff88"></span>Metric</div>
+  `;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   OPTIMIZER DRAWER
+   ═══════════════════════════════════════════════════════════ */
+const DEMO_OPTIMIZER = {
+  score: 82,
+  source: 'llm',
+  profile_summary: {
+    total_tokens: 10224020,
+    total_cost: 251.56,
+    session_count: 129,
+    active_tools: 6,
+    cache_hit_rate: 61,
+  },
+  developer_profile: {
+    title: 'Architect-Class Operator',
+    ai_personality: 'power_user',
+    bio: 'Multi-tool orchestrator running 6 AI agents across 8+ concurrent projects. Heavy Claude Code user (47% of total tokens) with strong Opus preference for architectural work on PROMETHEUS and LEVIATHAN. 78% AI code ratio. Session hygiene is excellent \u2014 avg 2.1h focused sessions with 93% spiral-free rate. Prompt quality in top 15% \u2014 clear intent, good context seeding. Cache hit rate at 61% suggests effective context engineering.',
+    traits: ['Multi-Agent Orchestrator', 'Opus Power User', 'Context Engineer', 'Low Spiral Rate', 'High AI Code Ratio', 'Cost-Aware'],
+  },
+  context_engineering: {
+    total_messages: 4192,
+    avg_tokens_per_message: 2439,
+    avg_tool_calls_per_session: 18.3,
+    bloated_sessions: 3,
+    bloated_pct: 2.3,
+    cost_per_message: 0.0062,
+  },
+  grades: {
+    session_hygiene: { grade: 'A', detail: '93% spiral-free, avg 2.1h sessions' },
+    prompt_quality: { grade: 'A', detail: '72% specificity, detailed prompts dominate' },
+    cost_efficiency: { grade: 'B', detail: '$251 spend, 8.2% waste rate' },
+    cache_efficiency: { grade: 'A', detail: '61% cache hit rate across all tools' },
+    tool_utilization: { grade: 'B', detail: '4/6 tools active, Codex + Windsurf underused' },
+  },
+  anti_patterns: [
+    { icon: '\uD83D\uDD04', pattern: 'Context Window Spiral', severity: 'medium', count: 4, detail: 'Found 4 sessions where token usage doubled without proportional output \u2014 suggests hitting context limits and regenerating.', fix: 'Break EREBUS sessions into sub-tasks. Use /compact or start fresh sessions when context gets heavy.', examples: ['EREBUS session #12: 567K tokens, only 89 lines output', 'PROMETHEUS session #47: context reset after 890K tokens'] },
+    { icon: '\u23F0', pattern: 'Marathon Session', severity: 'low', count: 2, detail: 'Two PROMETHEUS sessions exceeded 5h continuous usage. Diminishing returns after ~3h.', fix: 'Set a 3h session timer. Commit progress and start a new session to reset context.' },
+  ],
+  session_details: [
+    { project: 'PROMETHEUS', intent: 'greenfield', tool: 'Claude Code', messages: 142, tokens: 1345670, cost: 48.23, context_ratio: 3.2, first_prompt: 'Build the neural inference pipeline with streaming support and fallback routing' },
+    { project: 'LEVIATHAN', intent: 'refactoring', tool: 'Claude Code', messages: 123, tokens: 1123400, cost: 38.90, context_ratio: 2.8, first_prompt: 'Refactor the distributed consensus module to support partition tolerance' },
+    { project: 'HYPERION', intent: 'greenfield', tool: 'Cursor', messages: 89, tokens: 892340, cost: 22.45, context_ratio: 2.1, first_prompt: 'Set up the real-time telemetry dashboard with WebSocket streaming' },
+    { project: 'RAGNAROK', intent: 'debugging', tool: 'Copilot', messages: 78, tokens: 712340, cost: 18.67, context_ratio: 1.9, first_prompt: 'Debug the cascade failure in the event sourcing pipeline' },
+    { project: 'KRONOS-ENGINE', intent: 'greenfield', tool: 'Claude Code', messages: 71, tokens: 645230, cost: 21.34, context_ratio: 2.4, first_prompt: 'Implement the temporal query engine with bi-temporal indexing' },
+    { project: 'EREBUS', intent: 'exploration', tool: 'Kiro', messages: 67, tokens: 567120, cost: 12.80, context_ratio: 1.7, first_prompt: 'Explore approaches for zero-knowledge proof verification in the auth layer' },
+  ],
+  cost_forensics: {
+    total_cost: 251.56,
+    estimated_waste: 20.63,
+    waste_pct: 8.2,
+    cost_by_project: [
+      { project: 'PROMETHEUS', cost: 62.45 },
+      { project: 'LEVIATHAN', cost: 48.90 },
+      { project: 'HYPERION', cost: 34.22 },
+      { project: 'RAGNAROK', cost: 28.67 },
+      { project: 'KRONOS-ENGINE', cost: 24.34 },
+      { project: 'EREBUS', cost: 18.80 },
+    ],
+    cost_by_model: [
+      { model: 'Opus 4.6', cost: 127.44, tokens: 7591000 },
+      { model: 'Sonnet 4.6', cost: 54.22, tokens: 9702000 },
+      { model: 'GPT-4o', cost: 31.88, tokens: 5146000 },
+      { model: 'Haiku 4.5', cost: 18.90, tokens: 2691000 },
+    ],
+  },
+  prompt_analysis: {
+    specificity_score: 72,
+    prompt_length_distribution: {
+      commands_under_20: 167,
+      short_20_100: 672,
+      detailed_100_500: 847,
+      very_detailed_500_plus: 398,
+      avg_length: 187,
+    },
+    slash_commands: { '/commit': 42, '/review': 18, '/test': 31, '/plan': 12 },
+  },
+  strengths: [
+    { icon: '\u26A1', title: 'Multi-Agent Mastery', detail: '6 tools orchestrated effectively \u2014 Claude Code for heavy lifting, Cursor for iteration, Copilot for completions.' },
+    { icon: '\uD83C\uDFAF', title: 'Excellent Prompt Quality', detail: '72% specificity score. Detailed prompts with clear intent dominate your usage \u2014 this directly reduces wasted tokens.' },
+    { icon: '\uD83D\uDEE1\uFE0F', title: 'Low Spiral Rate', detail: '93% of sessions are spiral-free. You exit and restart when context degrades instead of fighting the window.' },
+    { icon: '\uD83D\uDCB0', title: 'Smart Model Routing', detail: 'Opus for architecture, Sonnet for iteration, Haiku for scaffolding. Good cost/capability tradeoffs.' },
+  ],
+  recommendations: [
+    { priority: 'high', title: 'Route PROMETHEUS scaffolding to Haiku 4.5', description: 'Boilerplate and test generation tasks on PROMETHEUS are using Opus. Haiku handles these at 90% quality for 1/19th the cost.', savings: 'Est. savings: $18.40/week' },
+    { priority: 'high', title: 'Enable prompt caching on LEVIATHAN', description: '1.3M tokens/day on this project with only 41% cache hit. The refactoring sessions re-send large context blocks that should be cached.', savings: 'Est. savings: $12/day' },
+    { priority: 'medium', title: 'Consolidate Cursor + Windsurf on HYPERION', description: 'Overlapping usage detected \u2014 both tools working on the same telemetry files. Pick one to reduce context switching overhead.' },
+    { priority: 'low', title: 'Break EREBUS exploration into smaller sessions', description: '3.1h avg session length with spiral detected in 2 of 18 sessions. Exploration tasks benefit from fresh context windows.' },
+  ],
+  missing_features: [
+    { tool: 'Claude Code', feature: 'CLAUDE.md Project Memory', evidence: 'No CLAUDE.md found in KRONOS-ENGINE or TITAN', benefit: 'Persistent project context reduces prompt setup by ~40%. Add architecture notes, conventions, and key decisions.' },
+    { tool: 'Cursor', feature: '.cursorrules File', evidence: 'No .cursorrules in HYPERION', benefit: 'Custom rules file tailors completions to your codebase patterns. Reduces correction cycles.' },
+    { tool: 'Claude Code', feature: '/compact Command', evidence: 'Only 2 uses detected across 42 sessions', benefit: 'Compacting context before it degrades prevents spirals. Use at natural breakpoints.' },
+  ],
+  project_insights: [
+    { project: 'PROMETHEUS', type: 'greenfield', insight: '62 sessions, 4.8M tokens, $62.45 \u2014 your most active project. Heavy Opus usage for architecture.', recommendation: 'Switch to Sonnet for implementation phases. Reserve Opus for design decisions only.', recommended_model: { model: 'Sonnet 4.6', reason: 'Best coding model \u2014 handles implementation at 1/5th the cost of Opus' } },
+    { project: 'LEVIATHAN', type: 'refactoring', insight: '38 sessions, 3.2M tokens \u2014 large-scale refactoring with high context reuse potential.', recommendation: 'Add a CLAUDE.md with the module dependency map. Enable aggressive caching.', recommended_model: { model: 'Sonnet 4.6', reason: 'Refactoring needs good pattern matching, not deep reasoning' } },
+    { project: 'EREBUS', type: 'exploration', insight: '18 sessions exploring ZK-proof approaches \u2014 high exploration, low code output.', recommendation: 'Use extended thinking mode for research phases. Switch to coding mode for implementation.', recommended_model: { model: 'Opus 4.6', reason: 'Deep reasoning needed for cryptographic architecture exploration' } },
+  ],
+  workflow: {
+    current: 'Heavy Opus usage across all task types. Manual context management \u2014 no CLAUDE.md in 3 projects. Occasional marathon sessions (5h+) on PROMETHEUS. Cursor and Windsurf overlap on HYPERION. Strong session discipline otherwise.',
+    future: 'Route by task complexity: Opus for architecture, Sonnet for implementation, Haiku for scaffolding. Add CLAUDE.md to all projects for persistent context. Cap sessions at 3h with /compact at breakpoints. Dedicate Cursor to HYPERION, drop Windsurf overlap. Target: $180/period (-28%) with same output quality.',
+  },
+};
+
+// Exact copy of Optimizer._renderResults from the real app
+function renderOptimizer() {
+  const data = DEMO_OPTIMIZER;
+  const content = document.getElementById('optimizer-content');
+  const formatNum = (n) => {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return n.toLocaleString();
+  };
+  let html = '<div class="animate-in">';
+
+  // Score circle
+  const score = data.score || 0;
+  const circumference = 2 * Math.PI * 42;
+  const offset = circumference - (score / 100) * circumference;
+  const scoreColor = score >= 80 ? 'var(--neon-green)' :
+                     score >= 60 ? 'var(--neon-cyan)' :
+                     score >= 40 ? 'var(--neon-yellow)' : 'var(--neon-red)';
+  const sourceLabel = data.source === 'llm' ? 'AI-Powered Analysis' :
+                      data.source === 'partial' ? 'Data-Driven Metrics' : 'Analysis';
+  html += `
+    <div class="score-container">
+      <div class="score-circle">
+        <svg viewBox="0 0 100 100">
+          <circle class="bg" cx="50" cy="50" r="42" />
+          <circle class="progress" cx="50" cy="50" r="42"
+            stroke="${scoreColor}"
+            stroke-dasharray="${circumference}"
+            stroke-dashoffset="${offset}" />
+        </svg>
+        <div class="score-number" style="color:${scoreColor}">${score}</div>
+      </div>
+      <div>
+        <div style="font-size:20px;font-weight:700;margin-bottom:4px;">
+          ${score >= 80 ? 'Excellent' : score >= 60 ? 'Good' : score >= 40 ? 'Needs Work' : 'Poor'} Usage
+        </div>
+        <div class="score-label">${sourceLabel}</div>
+  `;
+  const ps = data.profile_summary;
+  if (ps) {
+    html += `<div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--text-secondary);">
+      <span>${formatNum(ps.total_tokens)} tokens</span>
+      <span>$${(ps.total_cost || 0).toFixed(2)} cost</span>
+      <span>${ps.session_count} sessions</span>
+      <span>${ps.active_tools} tools</span>
+      ${ps.cache_hit_rate ? `<span>${ps.cache_hit_rate}% cache</span>` : ''}
+    </div>`;
+  }
+  html += `</div></div>`;
+
+  // Developer profile / bio
+  const dp = data.developer_profile;
+  if (dp && dp.title) {
+    const personalityIcons = {
+      'power_user': '\u26A1', 'debug_warrior': '\uD83D\uDEE1\uFE0F',
+      'explorer': '\uD83E\uDDED', 'methodical_builder': '\uD83C\uDFD7\uFE0F',
+      'cautious_adopter': '\uD83C\uDFAF', 'efficiency_optimizer': '\u2699\uFE0F',
+    };
+    const icon = personalityIcons[dp.ai_personality] || '\uD83D\uDC64';
+    html += `
+      <div class="dev-profile-section">
+        <div class="dev-profile-header">
+          <span class="dev-profile-icon">${icon}</span>
+          <span class="dev-profile-title">${dp.title}</span>
+        </div>
+        <p class="dev-profile-bio">${dp.bio}</p>
+        ${dp.traits && dp.traits.length > 0 ? `
+          <div class="dev-profile-traits">
+            ${dp.traits.map(t => `<span class="trait-chip">${t}</span>`).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  // Context engineering card
+  const ce = data.context_engineering;
+  if (ce && ce.total_messages > 0) {
+    const bloatColor = ce.bloated_pct > 30 ? 'var(--neon-red)' : ce.bloated_pct > 10 ? 'var(--neon-yellow)' : 'var(--neon-green)';
+    const cpmColor = ce.cost_per_message > 0.05 ? 'var(--neon-red)' : ce.cost_per_message > 0.01 ? 'var(--neon-yellow)' : 'var(--neon-green)';
+    html += `
+      <div class="context-eng-section">
+        <h3>Context Engineering</h3>
+        <div class="ce-grid">
+          <div class="ce-stat">
+            <div class="ce-value">${formatNum(ce.avg_tokens_per_message)}</div>
+            <div class="ce-label">Tokens / Message</div>
+          </div>
+          <div class="ce-stat">
+            <div class="ce-value">${ce.avg_tool_calls_per_session}</div>
+            <div class="ce-label">Tool Calls / Session</div>
+          </div>
+          <div class="ce-stat">
+            <div class="ce-value" style="color:${bloatColor}">${ce.bloated_sessions} <small>(${ce.bloated_pct}%)</small></div>
+            <div class="ce-label">Bloated Sessions (&gt;50 msgs)</div>
+          </div>
+          <div class="ce-stat">
+            <div class="ce-value" style="color:${cpmColor}">$${ce.cost_per_message.toFixed(4)}</div>
+            <div class="ce-label">Cost / Message</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Anti-patterns section
+  const aps = data.anti_patterns;
+  if (aps && aps.length > 0) {
+    html += '<div class="anti-patterns-section"><h3>Detected Anti-Patterns</h3>';
+    aps.forEach(ap => {
+      const sev = (ap.severity || 'medium').toLowerCase();
+      html += `
+        <div class="ap-card ${sev}">
+          <div class="ap-header">
+            <span class="ap-icon">${ap.icon || '\u26A0\uFE0F'}</span>
+            <span class="ap-name">${ap.pattern}</span>
+            <span class="ap-severity ${sev}">${sev}</span>
+            <span class="ap-count">${ap.count}x</span>
+          </div>
+          <div class="ap-detail">${ap.detail}</div>
+          <div class="ap-fix">${ap.fix}</div>
+          ${ap.examples && ap.examples.length > 0 ? `
+            <div class="ap-examples">
+              ${ap.examples.map(e => `<div class="ap-example">${e}</div>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  // Session deep-dive
+  const sd = data.session_details;
+  if (sd && sd.length > 0) {
+    html += '<div class="session-deep-section"><h3>Top Sessions (by token usage)</h3>';
+    const intentIcons = {
+      'debugging': '\uD83D\uDC1B', 'greenfield': '\uD83C\uDFD7\uFE0F', 'refactoring': '\u267B\uFE0F',
+      'exploration': '\uD83D\uDD0D', 'devops': '\u2699\uFE0F', 'documentation': '\uD83D\uDCDD',
+      'code_review': '\uD83D\uDC41\uFE0F', 'other': '\uD83D\uDCE6',
+    };
+    sd.slice(0, 8).forEach(s => {
+      const icon = intentIcons[s.intent] || '\uD83D\uDCE6';
+      const msgClass = s.messages > 50 ? 'warn' : s.messages > 20 ? 'mid' : 'ok';
+      html += `
+        <div class="sd-card" onclick="this.classList.toggle('expanded')">
+          <div class="sd-header">
+            <span class="sd-icon">${icon}</span>
+            <span class="sd-project">${s.project}</span>
+            <span class="sd-intent">${s.intent}</span>
+            <span class="sd-tool">${s.tool}</span>
+          </div>
+          <div class="sd-metrics">
+            <span class="sd-metric ${msgClass}">${s.messages} msgs</span>
+            <span class="sd-metric">${formatNum(s.tokens)} tok</span>
+            <span class="sd-metric">$${s.cost.toFixed(2)}</span>
+            <span class="sd-metric">${s.context_ratio}x ctx</span>
+          </div>
+          ${s.first_prompt ? `<div class="sd-prompt">"${s.first_prompt}"</div>` : ''}
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  // Cost forensics section
+  const cf = data.cost_forensics;
+  if (cf && cf.total_cost > 0) {
+    const wasteColor = cf.waste_pct > 15 ? 'var(--neon-red)' : cf.waste_pct > 5 ? 'var(--neon-yellow)' : 'var(--neon-green)';
+    html += `
+      <div class="cost-forensics-section">
+        <h3>Cost Forensics</h3>
+        <div class="cf-summary">
+          <div class="cf-stat">
+            <div class="cf-value">$${cf.total_cost.toFixed(2)}</div>
+            <div class="cf-label">Total Spend</div>
+          </div>
+          <div class="cf-stat">
+            <div class="cf-value" style="color:${wasteColor}">$${cf.estimated_waste.toFixed(2)}</div>
+            <div class="cf-label">Estimated Waste</div>
+          </div>
+          <div class="cf-stat">
+            <div class="cf-value" style="color:${wasteColor}">${cf.waste_pct}%</div>
+            <div class="cf-label">Waste Rate</div>
+          </div>
+        </div>
+    `;
+    const cbp = cf.cost_by_project || [];
+    if (cbp.length > 0) {
+      const maxCost = cbp[0].cost || 1;
+      html += '<div class="cf-projects">';
+      cbp.slice(0, 6).forEach(p => {
+        const pct = Math.round((p.cost / maxCost) * 100);
+        html += `
+          <div class="cf-bar-row">
+            <span class="cf-bar-label">${p.project}</span>
+            <div class="cf-bar-track"><div class="cf-bar-fill" style="width:${pct}%"></div></div>
+            <span class="cf-bar-value">$${p.cost.toFixed(2)}</span>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+    const cbm = cf.cost_by_model || [];
+    if (cbm.length > 0) {
+      html += '<div class="cf-models">';
+      cbm.forEach(m => {
+        html += `
+          <div class="cf-model-row">
+            <span class="cf-model-name">${m.model}</span>
+            <span class="cf-model-cost">$${m.cost.toFixed(2)}</span>
+            <span class="cf-model-tokens">${formatNum(m.tokens)} tok</span>
+          </div>
+        `;
+      });
+      html += '</div>';
+    }
+    if (cf.estimated_waste > 1) {
+      html += `<div class="cf-saving">Reducing marathon sessions could save ~$${cf.estimated_waste.toFixed(2)}/period</div>`;
+    }
+    html += '</div>';
+  }
+
+  // Prompt intelligence section
+  const pa = data.prompt_analysis;
+  if (pa && pa.prompt_length_distribution) {
+    const pld = pa.prompt_length_distribution;
+    const total = (pld.commands_under_20 || 0) + (pld.short_20_100 || 0) + (pld.detailed_100_500 || 0) + (pld.very_detailed_500_plus || 0);
+    const specColor = pa.specificity_score >= 60 ? 'var(--neon-green)' : pa.specificity_score >= 30 ? 'var(--neon-yellow)' : 'var(--neon-red)';
+    html += `
+      <div class="prompt-analysis-section">
+        <h3>Prompt Intelligence</h3>
+        <div class="pa-grid">
+          <div class="pa-stat">
+            <div class="pa-value" style="color:${specColor}">${pa.specificity_score}%</div>
+            <div class="pa-label">Specificity Score</div>
+          </div>
+          <div class="pa-stat">
+            <div class="pa-value">${pld.avg_length}</div>
+            <div class="pa-label">Avg Length (chars)</div>
+          </div>
+          <div class="pa-stat">
+            <div class="pa-value">${pld.detailed_100_500 + pld.very_detailed_500_plus}</div>
+            <div class="pa-label">Detailed Prompts</div>
+          </div>
+        </div>
+    `;
+    if (total > 0) {
+      const cmdPct = (pld.commands_under_20 / total * 100).toFixed(1);
+      const shortPct = (pld.short_20_100 / total * 100).toFixed(1);
+      const detPct = (pld.detailed_100_500 / total * 100).toFixed(1);
+      const richPct = (pld.very_detailed_500_plus / total * 100).toFixed(1);
+      html += `
+        <div class="pa-bar">
+          <div class="pa-segment cmd" style="width:${cmdPct}%" title="Commands: ${pld.commands_under_20}"></div>
+          <div class="pa-segment short" style="width:${shortPct}%" title="Short: ${pld.short_20_100}"></div>
+          <div class="pa-segment detailed" style="width:${detPct}%" title="Detailed: ${pld.detailed_100_500}"></div>
+          <div class="pa-segment rich" style="width:${richPct}%" title="Rich: ${pld.very_detailed_500_plus}"></div>
+        </div>
+        <div class="pa-legend">
+          <span class="pa-legend-item"><span class="pa-dot cmd"></span> Commands (&lt;20)</span>
+          <span class="pa-legend-item"><span class="pa-dot short"></span> Short (20-100)</span>
+          <span class="pa-legend-item"><span class="pa-dot detailed"></span> Detailed (100-500)</span>
+          <span class="pa-legend-item"><span class="pa-dot rich"></span> Rich (500+)</span>
+        </div>
+      `;
+    }
+    const sc = pa.slash_commands || {};
+    const scKeys = Object.keys(sc);
+    if (scKeys.length > 0) {
+      html += '<div class="pa-commands">';
+      scKeys.forEach(cmd => {
+        html += `<span class="pa-command">${cmd} <small>${sc[cmd]}x</small></span>`;
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // Grade cards
+  if (data.grades && Object.keys(data.grades).length > 0) {
+    html += '<div class="grades-grid">';
+    const gradeNames = {
+      cache_efficiency: 'Cache Efficiency', session_hygiene: 'Session Hygiene',
+      model_selection: 'Model Selection', prompt_quality: 'Prompt Quality',
+      tool_utilization: 'Tool Utilization',
+    };
+    for (const [key, info] of Object.entries(data.grades)) {
+      const grade = info.grade || 'B';
+      const gradeClass = ['A','B','C','D'].includes(grade) ? `grade-${grade}` : '';
+      html += `
+        <div class="grade-card ${gradeClass}">
+          <div class="grade-letter">${grade}</div>
+          <div class="grade-name">${gradeNames[key] || key}</div>
+          <div class="grade-detail">${info.detail || ''}</div>
+        </div>
+      `;
+    }
+    html += '</div>';
+  }
+
+  // Strengths
+  if (data.strengths && data.strengths.length > 0) {
+    html += '<div class="strengths-section"><h3>What You\'re Doing Right</h3>';
+    html += '<div class="strengths-grid">';
+    data.strengths.forEach(s => {
+      html += `
+        <div class="strength-card">
+          <span class="strength-icon">${s.icon || '\u2705'}</span>
+          <div class="strength-body">
+            <h4>${s.title}</h4>
+            <p>${s.detail}</p>
+          </div>
+        </div>
+      `;
+    });
+    html += '</div></div>';
+  }
+
+  // Recommendations
+  if (data.recommendations && data.recommendations.length > 0) {
+    html += '<div class="recommendations-section"><h3>Recommendations</h3>';
+    data.recommendations.forEach(rec => {
+      const priority = (rec.priority || 'medium').toLowerCase();
+      html += `
+        <div class="rec-card">
+          <span class="rec-priority ${priority}">${priority}</span>
+          <div class="rec-body">
+            <h4>${rec.title}</h4>
+            <p>${rec.description}</p>
+            ${rec.savings ? `<div class="rec-savings">${rec.savings}</div>` : ''}
+          </div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  // Missing features
+  if (data.missing_features && data.missing_features.length > 0) {
+    html += '<div class="missing-section"><h3>Features You\'re Not Using</h3>';
+    data.missing_features.forEach(f => {
+      html += `
+        <div class="missing-card">
+          <div>
+            <span class="tool-tag">${f.tool}</span>
+            <span class="feature-name">${f.feature}</span>
+          </div>
+          ${f.evidence ? `<div class="feature-evidence">${f.evidence}</div>` : ''}
+          <div class="feature-benefit">${f.benefit}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  // Project insights
+  if (data.project_insights && data.project_insights.length > 0) {
+    html += '<div class="project-insights-section"><h3>Project Intelligence</h3>';
+    data.project_insights.forEach(pi => {
+      const typeBadges = {
+        'greenfield': '\uD83C\uDFD7\uFE0F', 'debugging': '\uD83D\uDC1B', 'refactoring': '\u267B\uFE0F',
+        'exploration': '\uD83D\uDD0D', 'devops': '\u2699\uFE0F', 'documentation': '\uD83D\uDCDD',
+        'code_review': '\uD83D\uDC41\uFE0F', 'other': '\uD83D\uDCE6', 'general': '\uD83D\uDCE6',
+      };
+      const badge = typeBadges[pi.type] || '\uD83D\uDCE6';
+      html += `
+        <div class="project-insight-card">
+          <div class="pi-header">
+            <span class="pi-type">${badge}</span>
+            <span class="pi-name">${pi.project}</span>
+            <span class="pi-type-label">${pi.type}</span>
+          </div>
+          <div class="pi-stats">${pi.insight}</div>
+          <div class="pi-rec">${pi.recommendation}</div>
+          ${pi.recommended_model ? `<div class="pi-model-rec"><span class="pi-model-label">Recommended model:</span> <strong>${pi.recommended_model.model}</strong> \u2014 ${pi.recommended_model.reason}</div>` : ''}
+          ${pi.recommended_tool ? `<div class="pi-model-rec"><span class="pi-model-label">Recommended IDE:</span> <strong>${pi.recommended_tool.tool}</strong> \u2014 ${pi.recommended_tool.reason}</div>` : ''}
+          ${pi.underutilized && pi.underutilized !== 'None detected' ? `<div class="pi-underutil">Underutilized: ${pi.underutilized}</div>` : ''}
+        </div>
+      `;
+    });
+    html += '</div>';
+  }
+
+  // Workflow vision
+  if (data.workflow && data.workflow.current) {
+    html += `<div class="workflow-section">
+      <h3>Workflow Assessment</h3>
+      <div class="workflow-grid">
+        <div class="workflow-col current">
+          <div class="wf-label">Current Workflow</div>
+          <p>${data.workflow.current}</p>
+        </div>
+        <div class="workflow-col future">
+          <div class="wf-label">Optimized Workflow</div>
+          <p>${data.workflow.future}</p>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  renderStats();
+  renderToolBar();
+  renderModels();
+  renderHourly();
+  renderSessions();
+  renderCost();
+  renderGraph();
+  renderOptimizer();
+
+  // Drawer toggle
+  const drawer = document.getElementById('optimizer-drawer');
+  const fsBtn = document.getElementById('drawer-fullscreen');
+  document.getElementById('drawer-toggle').addEventListener('click', (e) => {
+    if (e.target.closest('#drawer-fullscreen')) return;
+    drawer.classList.toggle('collapsed');
+    if (!drawer.classList.contains('collapsed')) drawer.classList.remove('fullscreen');
+  });
+  fsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    drawer.classList.remove('collapsed');
+    drawer.classList.toggle('fullscreen');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (drawer.classList.contains('fullscreen')) { drawer.classList.remove('fullscreen'); }
+      else if (!drawer.classList.contains('collapsed')) { drawer.classList.add('collapsed'); }
+    }
+  });
+  // Auto-open drawer after 2s for demo wow-factor
+  setTimeout(() => { drawer.classList.remove('collapsed'); }, 2000);
+
+  // Live counter animation
+  setInterval(() => {
+    const el = document.getElementById('stat-tokens');
+    if (!el) return;
+    const bases = { tokens: 10224020, cost: 251.56, messages: 4192, sessions: 129 };
+    const jitter = { tokens: Math.floor(Math.random() * 5000), cost: Math.random() * 0.5, messages: Math.floor(Math.random() * 3), sessions: 0 };
+    el.textContent = formatNum(bases.tokens + jitter.tokens);
+    el.style.transform = 'scale(1.12)';
+    setTimeout(() => { el.style.transform = 'scale(1)'; }, 200);
+    const cel = document.getElementById('stat-cost');
+    if (cel) { cel.textContent = formatCost(bases.cost + jitter.cost); cel.style.transform = 'scale(1.12)'; setTimeout(() => { cel.style.transform = 'scale(1)'; }, 200); }
+    const mel = document.getElementById('stat-messages');
+    if (mel) { mel.textContent = formatNum(bases.messages + jitter.messages); }
+  }, 3000);
+});
+</script>
+</body>
+</html>

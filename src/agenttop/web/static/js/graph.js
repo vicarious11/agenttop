@@ -9,12 +9,12 @@ const Graph = {
   _particleTimer: null,
 
   EDGE_STYLES: {
-    token_flow:    { dash: 'none',   opacity: 0.35, particleColor: '#ff6b00' },
-    message_flow:  { dash: '8,4',    opacity: 0.25, particleColor: '#00fff5' },
-    model_usage:   { dash: 'none',   opacity: 0.20, particleColor: null },
-    project_work:  { dash: '4,3',    opacity: 0.15, particleColor: null },
-    feature_usage: { dash: '3,2',    opacity: 0.18, particleColor: '#00fff5' },
-    code_gen:      { dash: '6,2,2,2', opacity: 0.22, particleColor: '#00ff88' },
+    token_flow:    { dash: 'none',   opacity: 0.25, particleColor: null },
+    message_flow:  { dash: '8,4',    opacity: 0.18, particleColor: null },
+    model_usage:   { dash: 'none',   opacity: 0.15, particleColor: null },
+    project_work:  { dash: '4,3',    opacity: 0.12, particleColor: null },
+    feature_usage: { dash: '3,2',    opacity: 0.14, particleColor: null },
+    code_gen:      { dash: '6,2,2,2', opacity: 0.18, particleColor: null },
   },
 
   _layerX(width) {
@@ -46,30 +46,14 @@ const Graph = {
     // ── Defs ──
     const defs = Graph.svg.append('defs');
 
-    // Glow filters
-    ['glow', 'glow-strong', 'glow-soft'].forEach((id, i) => {
-      const stdDev = [3, 7, 2][i];
-      const f = defs.append('filter').attr('id', id)
-        .attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
-      f.append('feGaussianBlur').attr('stdDeviation', stdDev).attr('result', 'blur');
-      const m = f.append('feMerge');
-      m.append('feMergeNode').attr('in', 'blur');
-      m.append('feMergeNode').attr('in', 'SourceGraphic');
-    });
-
-    // Radial gradient for center
-    const cg = defs.append('radialGradient').attr('id', 'center-grad');
-    cg.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(255,255,255,0.15)');
-    cg.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(255,255,255,0)');
-
     // Arrow markers for directional edges
-    ['#ff6b00', '#00fff5', '#00ff88', '#6644ff', '#ff9944', '#ffcc88', '#4488ff', '#ffffff', '#ffee00', '#ff00ff', '#ff4444', '#888888'].forEach(color => {
+    ['#f97316', '#22d3ee', '#34d399', '#c084fc', '#ff9944', '#ffcc88', '#60a5fa', '#fafafa', '#facc15', '#c084fc', '#f87171', '#71717a'].forEach(color => {
       defs.append('marker')
         .attr('id', `arrow-${color.replace('#', '')}`)
         .attr('viewBox', '0 0 10 6').attr('refX', 10).attr('refY', 3)
         .attr('markerWidth', 8).attr('markerHeight', 5)
         .attr('orient', 'auto')
-        .append('path').attr('d', 'M0,0 L10,3 L0,6').attr('fill', color).attr('opacity', 0.4);
+        .append('path').attr('d', 'M0,0 L10,3 L0,6').attr('fill', color).attr('opacity', 0.3);
     });
 
     // Container for zoom/pan
@@ -191,38 +175,26 @@ const Graph = {
       const r = nodeRadius(d);
 
       if (d.type === 'center') {
-        g.append('circle').attr('r', r + 20)
-          .attr('fill', 'url(#center-grad)').attr('opacity', 0.5);
-        g.append('circle').attr('r', r + 8)
-          .attr('fill', 'none').attr('stroke', '#fff').attr('stroke-width', 0.5)
-          .attr('opacity', 0.2).attr('class', 'ring-pulse');
         g.append('circle').attr('r', r)
-          .attr('fill', 'rgba(255,255,255,0.04)')
-          .attr('stroke', '#fff').attr('stroke-width', 1.5)
-          .attr('filter', 'url(#glow-strong)');
+          .attr('fill', 'rgba(255,255,255,0.06)')
+          .attr('stroke', '#a1a1aa').attr('stroke-width', 1.5);
         g.append('text').attr('class', 'node-label node-label-center').attr('dy', 4).text(d.label);
 
       } else if (d.type === 'tool') {
-        g.append('circle').attr('r', r + 4)
-          .attr('fill', 'none').attr('stroke', d.color).attr('stroke-width', 0.5)
-          .attr('opacity', d.status === 'active' ? 0.3 : 0.1)
-          .attr('stroke-dasharray', d.status === 'active' ? 'none' : '2,3');
         g.append('circle').attr('r', r)
-          .attr('fill', d.color + '15')
-          .attr('stroke', d.color).attr('stroke-width', 1.5)
-          .attr('filter', 'url(#glow)');
+          .attr('fill', d.color + '18')
+          .attr('stroke', d.color).attr('stroke-width', 1.5);
         g.append('text').attr('text-anchor', 'middle').attr('dy', 5)
           .attr('font-size', Math.max(10, r * 0.7))
           .attr('font-weight', '700').attr('font-family', "'SF Mono', monospace")
           .attr('fill', d.color).text(d.label[0]);
         g.append('text').attr('class', 'node-label node-label-bright').attr('dy', r + 14).text(d.label);
-        // Subtitle with key metric
         const sub = d.tokens > 0 ? App.formatNum(d.tokens) + ' tok' :
                     d.messages > 0 ? App.formatNum(d.messages) + ' msg' :
                     d.sessions > 0 ? d.sessions + ' sess' : '';
         if (sub) {
           g.append('text').attr('class', 'node-label').attr('dy', r + 24)
-            .attr('font-size', '8px').attr('fill', d.color).attr('opacity', 0.6).text(sub);
+            .attr('font-size', '8px').attr('fill', d.color).attr('opacity', 0.7).text(sub);
         }
 
       } else if (d.type === 'model') {
@@ -231,26 +203,22 @@ const Graph = {
           return [Math.cos(a) * r, Math.sin(a) * r];
         });
         g.append('polygon').attr('points', pts.map(p => p.join(',')).join(' '))
-          .attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1.2)
-          .attr('filter', 'url(#glow-soft)');
+          .attr('fill', d.color + '15').attr('stroke', d.color).attr('stroke-width', 1);
         g.append('text').attr('class', 'node-label node-label-bright').attr('dy', r + 13).text(d.label);
 
       } else if (d.type === 'project') {
         const s = r;
         g.append('polygon').attr('points', `0,${-s} ${s},0 0,${s} ${-s},0`)
-          .attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1)
-          .attr('filter', 'url(#glow-soft)');
+          .attr('fill', d.color + '15').attr('stroke', d.color).attr('stroke-width', 1);
         const lbl = d.label.length > 14 ? d.label.slice(0, 14) + '\u2026' : d.label;
         g.append('text').attr('class', 'node-label').attr('dy', r + 12).attr('font-size', '9px').text(lbl);
 
       } else if (d.type === 'feature') {
-        // Rounded rectangle for features (Tab Complete, Composer, etc.)
         g.append('rect')
           .attr('x', -r * 1.3).attr('y', -r * 0.7)
           .attr('width', r * 2.6).attr('height', r * 1.4)
           .attr('rx', 4).attr('ry', 4)
-          .attr('fill', d.color + '10').attr('stroke', d.color).attr('stroke-width', 1)
-          .attr('filter', 'url(#glow-soft)');
+          .attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1);
         g.append('text').attr('class', 'node-label node-label-bright').attr('dy', 3)
           .attr('font-size', '9px').text(d.label);
         if (d.count) {
@@ -260,18 +228,15 @@ const Graph = {
         }
 
       } else if (d.type === 'metric') {
-        // Rounded square for metrics (AI Code ratio)
         const s = r * 0.9;
         g.append('rect')
           .attr('x', -s).attr('y', -s)
           .attr('width', s * 2).attr('height', s * 2)
           .attr('rx', 5).attr('ry', 5)
-          .attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1.2)
-          .attr('filter', 'url(#glow-soft)');
+          .attr('fill', d.color + '12').attr('stroke', d.color).attr('stroke-width', 1);
         g.append('text').attr('class', 'node-label node-label-bright').attr('dy', 3)
           .attr('font-size', '9px').text(d.label);
         if (d.ai_pct != null) {
-          // Mini bar showing AI vs human
           const bw = s * 1.4;
           const bh = 3;
           const aiW = bw * (d.ai_pct / 100);
@@ -391,9 +356,8 @@ const Graph = {
         .attr('class', 'particle')
         .attr('r', 1.5 + Math.random())
         .attr('fill', color)
-        .attr('filter', 'url(#glow-soft)')
         .attr('cx', src.x).attr('cy', src.y)
-        .attr('opacity', 0.7);
+        .attr('opacity', 0.5);
 
       // Follow the S-curve Bezier path (cubic)
       const midX = (src.x + tgt.x) / 2;
@@ -415,12 +379,12 @@ const Graph = {
 
   _renderLegend() {
     document.getElementById('graph-legend').innerHTML = `
-      <div class="legend-item"><span class="legend-shape legend-circle" style="background:rgba(255,255,255,0.6);border-color:rgba(255,255,255,0.6)"></span>You</div>
-      <div class="legend-item"><span class="legend-shape legend-circle" style="background:rgba(255,107,0,0.3);border-color:#ff6b00"></span>Tool</div>
-      <div class="legend-item"><span class="legend-shape legend-hex" style="background:rgba(255,153,68,0.3);border-color:#ff9944"></span>Model</div>
-      <div class="legend-item"><span class="legend-shape legend-diamond" style="background:rgba(102,68,255,0.3);border-color:#6644ff"></span>Project</div>
-      <div class="legend-item"><span class="legend-shape legend-rect" style="background:rgba(0,255,245,0.3);border-color:#00fff5"></span>Feature</div>
-      <div class="legend-item"><span class="legend-shape legend-rect" style="background:rgba(0,255,136,0.3);border-color:#00ff88"></span>Metric</div>
+      <div class="legend-item"><span class="legend-shape legend-circle" style="background:rgba(161,161,170,0.3);border:1px solid #a1a1aa"></span>You</div>
+      <div class="legend-item"><span class="legend-shape legend-circle" style="background:rgba(249,115,22,0.2);border:1px solid #f97316"></span>Tool</div>
+      <div class="legend-item"><span class="legend-shape legend-hex" style="background:rgba(249,115,22,0.15);border:1px solid #f97316"></span>Model</div>
+      <div class="legend-item"><span class="legend-shape legend-diamond" style="background:rgba(192,132,252,0.2);border:1px solid #c084fc"></span>Project</div>
+      <div class="legend-item"><span class="legend-shape legend-rect" style="background:rgba(45,212,191,0.15);border:1px solid #2dd4bf"></span>Feature</div>
+      <div class="legend-item"><span class="legend-shape legend-rect" style="background:rgba(52,211,153,0.15);border:1px solid #34d399"></span>Metric</div>
     `;
   },
 

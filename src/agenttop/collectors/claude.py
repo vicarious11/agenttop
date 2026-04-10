@@ -529,10 +529,11 @@ class ClaudeCodeCollector(BaseCollector):
         total_cost = 0.0
         for model_id, usage in self.get_model_usage().items():
             pricing = _match_model_pricing(model_id)
-            total_cost += usage.get("inputTokens", 0) / 1_000_000 * pricing["input"]
-            total_cost += usage.get("outputTokens", 0) / 1_000_000 * pricing["output"]
-            total_cost += usage.get("cacheReadInputTokens", 0) / 1_000_000 * pricing["cache_read"]
-            total_cost += usage.get("cacheCreationInputTokens", 0) / 1_000_000 * pricing["cache_create"]
+            total_cost += (
+                usage.get("cacheCreationInputTokens", 0)
+                / 1_000_000
+                * pricing["cache_create"]
+            )
         return total_cost
 
     # ──────────────────────────────────────────────────────────

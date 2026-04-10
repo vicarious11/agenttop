@@ -102,7 +102,10 @@ class SuggestionsView(Static):
             return
 
         # Show loading state
-        self._set_content("[bold]Generating report card...[/]\n\n[dim]Querying LLM — this may take a few seconds.[/]")
+        self._set_content(
+            "[bold]Generating report card...[/]\n\n"
+            "[dim]Querying LLM — this may take a few seconds.[/]"
+        )
 
         # Run LLM analysis in a worker thread
         self.run_worker(
@@ -121,7 +124,6 @@ class SuggestionsView(Static):
     def _build_llm_report(self, claude, llm_config) -> str:
         """Gather stats and call LLM for analysis. Runs in worker thread."""
         from agenttop.analysis.engine import get_completion
-        from agenttop.analysis.workflow import generate_data_insights
 
         # Gather all data (same as before — fast, local)
         sessions = claude.collect_sessions()
@@ -185,7 +187,8 @@ class SuggestionsView(Static):
             cache_hit = (cache_read / total_input * 100) if total_input > 0 else 0
             model_cost_lines.append(
                 f"  {_short_model(model_id)}: {human_cost(model_cost)}, "
-                f"input={human_tokens(input_t)}, output={human_tokens(usage.get('outputTokens', 0))}, "
+                f"input={human_tokens(input_t)}, "
+                f"output={human_tokens(usage.get('outputTokens', 0))}, "
                 f"cache_hit={cache_hit:.0f}%"
             )
 
@@ -205,7 +208,8 @@ class SuggestionsView(Static):
         data_summary = f"""USAGE DATA SUMMARY
 ==================
 Period: since {first_date}
-Total: {total_sessions} sessions, {human_number(total_prompts)} prompts, {human_tokens(total_tokens)} tokens, ~{human_cost(total_cost)} cost
+Total: {total_sessions} sessions, {human_number(total_prompts)} prompts, \
+{human_tokens(total_tokens)} tokens, ~{human_cost(total_cost)} cost
 
 SESSION PATTERNS
   Under 10 messages: {under10} ({under10 / total_sessions * 100 if total_sessions else 0:.0f}%)
@@ -221,13 +225,16 @@ MODEL COSTS
 
 PROMPT QUALITY
   Average prompt length: {avg_prompt_len:.0f} chars
-  Prompts with pasted content: {prompts_with_paste}/{total_prompts} ({prompts_with_paste / total_prompts * 100 if total_prompts else 0:.0f}%)
+  Prompts with pasted content: {prompts_with_paste}/{total_prompts} \
+  ({prompts_with_paste / total_prompts * 100 if total_prompts else 0:.0f}%)
 """
 
         # Call LLM for full analysis
         prompt = f"""You are a developer productivity analyst reviewing AI coding tool usage data.
 
-Analyze the following usage data and produce a concise workflow report card. Use plain text formatting (no markdown headers, no **, no ##). Use CAPS for section titles. Use simple dashes for bullet points.
+Analyze the following usage data and produce a concise workflow report card. \
+Use plain text formatting (no markdown headers, no **, no ##). Use CAPS for \
+section titles. Use simple dashes for bullet points.
 
 Structure your response as:
 
@@ -236,7 +243,8 @@ YOUR WORKFLOW PROFILE
 
 SCORE CARDS
 For each area, give a letter grade (A/B/C/D) and 1-2 line explanation:
-- Session Hygiene: grade based on session length distribution (too many short restarts = bad, too many 100+ message sessions = bad)
+- Session Hygiene: grade based on session length distribution \
+  (too many short restarts = bad, too many 100+ message sessions = bad)
 - Project Focus: grade based on CLAUDE.md coverage for active projects
 - Cost Efficiency: grade based on model mix and cost per message
 - Prompt Quality: grade based on prompt lengths and pasted content usage

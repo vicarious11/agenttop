@@ -124,7 +124,9 @@ def generate_data_insights(collector) -> list[str]:
             name = "-".join(short)
             if name.startswith("claude-"):
                 name = name[7:]
-            insights.append(f"{name}: {ratio:.0f}% cache hit rate ({human_tokens(cache_read)} cached)")
+            insights.append(
+                f"{name}: {ratio:.0f}% cache hit rate ({human_tokens(cache_read)} cached)"
+            )
 
     # Session quality
     longest = summary.get("longestSession", {})
