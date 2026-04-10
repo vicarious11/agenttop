@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+
 from agenttop.models import Session
 
 
@@ -441,7 +442,6 @@ def compute_strengths(
     """Extract diverse positive signals — what the user is doing right."""
     strengths: list[dict[str, str]] = []
     analyzed = list((session_analyses or {}).values())
-    sessions = profile.get("all_sessions", [])
     prompt_analysis = profile.get("prompt_analysis", {})
     cost_forensics = profile.get("cost_forensics", {})
     model_usage = profile.get("model_usage", {})

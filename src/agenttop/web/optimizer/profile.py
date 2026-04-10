@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-import logging
 from collections import defaultdict
 from typing import Any
+
+import logging
 
 from agenttop.models import Session
 from agenttop.web.optimizer.analyzer import analyze_anti_patterns, analyze_prompts, build_cost_forensics

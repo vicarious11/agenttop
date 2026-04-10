@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import Counter
 
-from agenttop.models import Session
 from agenttop.workflow.correlator import SessionCorrelator
 from agenttop.workflow.knowledge_base import (
     TASK_TYPE_RECOMMENDATIONS,

@@ -20,10 +20,11 @@ Module layout:
 
 from __future__ import annotations
 
-import json
-import logging
 from collections.abc import Callable
 from typing import Any
+
+import json
+import logging
 
 from agenttop.analysis.engine import get_completion
 from agenttop.config import Config
