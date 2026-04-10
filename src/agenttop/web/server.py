@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -14,8 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-
-import re
 
 from agenttop.collectors.base import BaseCollector
 from agenttop.collectors.claude import ClaudeCodeCollector
@@ -29,10 +28,7 @@ from agenttop.web.graph_builder import GraphBuilder
 from agenttop.workflow import (
     SessionCorrelator,
     WorkflowAnalyzer,
-    WorkflowPatternDetector,
     get_all_tool_names,
-    get_recommendation_for_task,
-    get_switching_cost,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
