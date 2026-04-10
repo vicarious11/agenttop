@@ -64,9 +64,9 @@ def _extract_project(filepath: str) -> str | None:
     """
     if not filepath or not filepath.startswith("/"):
         return None
-    from pathlib import Path as _path
+    from pathlib import Path as _Path
 
-    home = str(_path.home())
+    home = str(_Path.home())
     rel = filepath[len(home) + 1:] if filepath.startswith(home + "/") else filepath.lstrip("/")
     parts = rel.split("/")
 

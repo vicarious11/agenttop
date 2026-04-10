@@ -160,7 +160,9 @@ class AnalysisScreen(Screen[None]):
                 try:
                     s = collector.get_stats()
                     d = s.model_dump()
-                    d["display_name"] = TOOL_DISPLAY.get(collector.tool_name.value, collector.tool_name.value)
+                    d["display_name"] = TOOL_DISPLAY.get(
+                        collector.tool_name.value, collector.tool_name.value
+                    )
                     stats.append(d)
                     fc = collector.get_feature_config()
                     if fc:
@@ -185,7 +187,12 @@ class AnalysisScreen(Screen[None]):
 
     def _display_result(self, result: dict[str, Any]) -> None:
         score = result.get("score", 0)
-        color = "green" if score >= 80 else "cyan" if score >= 60 else "yellow" if score >= 40 else "red"
+        color = (
+            "green" if score >= 80 else
+            "cyan" if score >= 60 else
+            "yellow" if score >= 40 else
+            "red"
+        )
 
         lines: list[str] = [f"[bold {color}]═══ Score: {score}/100 ═══[/bold {color}]", ""]
 
@@ -198,8 +205,13 @@ class AnalysisScreen(Screen[None]):
         grades = result.get("grades", {})
         if grades:
             lines.append("[bold]Grades:[/bold]")
-            names = {"cache_efficiency": "Cache", "session_hygiene": "Hygiene",
-                     "model_selection": "Model", "prompt_quality": "Prompts", "tool_utilization": "Tools"}
+            names = {
+                "cache_efficiency": "Cache",
+                "session_hygiene": "Hygiene",
+                "model_selection": "Model",
+                "prompt_quality": "Prompts",
+                "tool_utilization": "Tools",
+            }
             for key, info in grades.items():
                 g = info.get("grade", "?")
                 gc = {"A": "green", "B": "cyan", "C": "yellow", "D": "red"}.get(g, "white")
@@ -232,7 +244,10 @@ class AnalysisScreen(Screen[None]):
         if cf.get("total_cost", 0) > 0:
             lines.append(f"[bold]Cost:[/bold] ${cf['total_cost']:.2f}")
             if cf.get("estimated_waste", 0) > 0:
-                lines.append(f"  [yellow]Waste: ${cf['estimated_waste']:.2f} ({cf.get('waste_pct', 0)}%)[/yellow]")
+                waste_pct = cf.get('waste_pct', 0)
+                lines.append(
+                    f"  [yellow]Waste: ${cf['estimated_waste']:.2f} ({waste_pct}%)[/yellow]"
+                )
 
         try:
             self.query_one("#analysis-title", Label).update(
@@ -312,7 +327,10 @@ class SessionExplorerView(Static):
         self._load_sessions()
 
     def _load_sessions(self) -> None:
-        cutoff = datetime.now() - timedelta(days=self._days) if self._days > 0 else datetime(2000, 1, 1)
+        if self._days > 0:
+            cutoff = datetime.now() - timedelta(days=self._days)
+        else:
+            cutoff = datetime(2000, 1, 1)
         sessions: list[Session] = []
         for collector in self._collectors:
             try:

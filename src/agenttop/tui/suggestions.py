@@ -102,7 +102,10 @@ class SuggestionsView(Static):
             return
 
         # Show loading state
-        self._set_content("[bold]Generating report card...[/]\n\n[dim]Querying LLM — this may take a few seconds.[/]")
+        self._set_content(
+            "[bold]Generating report card...[/]\n\n"
+            "[dim]Querying LLM — this may take a few seconds.[/]"
+        )
 
         # Run LLM analysis in a worker thread
         self.run_worker(
@@ -121,7 +124,6 @@ class SuggestionsView(Static):
     def _build_llm_report(self, claude, llm_config) -> str:
         """Gather stats and call LLM for analysis. Runs in worker thread."""
         from agenttop.analysis.engine import get_completion
-        from agenttop.analysis.workflow import generate_data_insights
 
         # Gather all data (same as before — fast, local)
         sessions = claude.collect_sessions()
@@ -185,7 +187,8 @@ class SuggestionsView(Static):
             cache_hit = (cache_read / total_input * 100) if total_input > 0 else 0
             model_cost_lines.append(
                 f"  {_short_model(model_id)}: {human_cost(model_cost)}, "
-                f"input={human_tokens(input_t)}, output={human_tokens(usage.get('outputTokens', 0))}, "
+                f"input={human_tokens(input_t)}, "
+                f"output={human_tokens(usage.get('outputTokens', 0))}, "
                 f"cache_hit={cache_hit:.0f}%"
             )
 
