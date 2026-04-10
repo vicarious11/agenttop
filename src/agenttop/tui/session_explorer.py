@@ -135,7 +135,10 @@ class AnalysisScreen(Screen[None]):
                 id="analysis-title", classes="analysis-title",
             )
             yield VerticalScroll(
-                Label("[dim]Running LLM analysis... This may take a moment.[/dim]", id="analysis-output"),
+                Label(
+                    "[dim]Running LLM analysis... This may take a moment.[/dim]",
+                    id="analysis-output",
+                ),
                 classes="analysis-output",
             )
             with Horizontal(classes="analysis-btns"):

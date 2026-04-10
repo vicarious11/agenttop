@@ -94,8 +94,6 @@ def stats(days: int) -> None:
         ("Copilot", CopilotCollector()),
     ]
 
-    from agenttop.formatting import human_cost, human_tokens
-
     total_tokens = 0
     total_cost = 0.0
 

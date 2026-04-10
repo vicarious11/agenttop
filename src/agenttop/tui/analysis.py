@@ -613,7 +613,8 @@ class AnalysisView(Static):
 
         # Show loading state for LLM-powered sections
         self.query_one(DataInsights).update(
-            "[bold]Analyzing with LLM...[/]\n\n[dim]Classifying intents and generating insights — this may take a moment.[/]"
+            "[bold]Analyzing with LLM...[/]\n\n[dim]Classifying intents "
+            "and generating insights — this may take a moment.[/]"
         )
 
         # Collect prompt samples for LLM classification
@@ -653,7 +654,8 @@ class AnalysisView(Static):
             numbered = "\n".join(f"{i+1}. {p[:120]}" for i, p in enumerate(sample))
             batch_prompt = (
                 "Classify each prompt into exactly one category.\n"
-                "Categories: debugging, refactoring, greenfield, exploration, code_review, devops, documentation\n\n"
+                "Categories: debugging, refactoring, greenfield, exploration, "
+                "code_review, devops, documentation\n\n"
                 f"Prompts:\n{numbered}\n\n"
                 "Respond with ONLY a JSON array of category names, one per prompt, in order.\n"
                 'Example: ["debugging", "exploration", "greenfield"]'
@@ -661,7 +663,10 @@ class AnalysisView(Static):
             result = get_completion(
                 batch_prompt,
                 llm_config,
-                system="You classify developer prompts into categories. Respond only with a JSON array.",
+                system=(
+                    "You classify developer prompts into categories. "
+                    "Respond only with a JSON array."
+                ),
                 max_tokens=512,
             )
 

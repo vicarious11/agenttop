@@ -76,7 +76,8 @@ class KnowledgeGraphView(Static):
         total_messages = summary.get("totalMessages", 0)
 
         node = root.add(
-            f"[orange]Claude Code[/] ({total_sessions} sessions, {human_number(total_messages)} messages)",
+            f"[orange]Claude Code[/] ({total_sessions} sessions, "
+            f"{human_number(total_messages)} messages)",
         )
 
         # -- Models --
@@ -134,7 +135,9 @@ class KnowledgeGraphView(Static):
                 )[:15]:
                     bar_len = max(1, int(counts["prompts"] / max_prompts * 15))
                     bar = "█" * bar_len
-                    cost_str = f", ${counts.get('cost', 0):.2f}" if counts.get("cost", 0) > 0 else ""
+                    cost_str = (
+                        f", ${counts.get('cost', 0):.2f}" if counts.get("cost", 0) > 0 else ""
+                    )
                     projects_node.add(
                         f"{proj} — {human_number(counts['prompts'])} msgs, "
                         f"{counts['sessions']} sess{cost_str}  [green]{bar}[/]"
