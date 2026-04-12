@@ -76,12 +76,11 @@ class SuggestionsView(Static):
 
     def _generate(self) -> None:
         """Generate personalized report card from real data via LLM."""
-        from agenttop.collectors.claude import ClaudeCodeCollector
-
         claude = None
         for c in self._collectors:
-            if isinstance(c, ClaudeCodeCollector):
+            if hasattr(c, "get_model_usage"):
                 claude = c
+                break
 
         if not claude or not claude.is_available():
             self._set_content(

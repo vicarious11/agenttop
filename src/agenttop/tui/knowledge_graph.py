@@ -56,9 +56,9 @@ class KnowledgeGraphView(Static):
             from agenttop.collectors.claude import ClaudeCodeCollector
             from agenttop.collectors.cursor import CursorCollector
 
-            if isinstance(collector, ClaudeCodeCollector):
+            if hasattr(collector, "get_model_usage") and hasattr(collector, "get_daily_history"):
                 self._build_claude_subtree(root, collector)
-            elif isinstance(collector, CursorCollector):
+            elif hasattr(collector, "get_ai_vs_human_ratio"):
                 self._build_cursor_subtree(root, collector)
             else:
                 self._build_generic_subtree(root, collector)
