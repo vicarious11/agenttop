@@ -762,9 +762,9 @@ def _demo_analysis_result(session_count: int) -> dict[str, Any]:
             ],
         },
         "strengths": [
-            {"icon": "\u26a1", "title": "Cache mastery", "detail": "87% cache hit rate — well-structured project context keeps costs down"},
-            {"icon": "\ud83c\udfaf", "title": "Targeted prompts", "detail": "92% of prompts reference specific files, functions, or line numbers"},
-            {"icon": "\ud83d\udd27", "title": "Multi-tool fluency", "detail": "Productive across 5 tools with consistent patterns"},
+            {"icon": ">", "title": "Cache mastery", "detail": "87% cache hit rate -- well-structured project context keeps costs down"},
+            {"icon": ">", "title": "Targeted prompts", "detail": "92% of prompts reference specific files, functions, or line numbers"},
+            {"icon": ">", "title": "Multi-tool fluency", "detail": "Productive across 5 tools with consistent patterns"},
         ],
         "anti_patterns": [
             {"pattern": "Marathon sessions (50+ msgs without /compact)", "count": 8},
