@@ -52,12 +52,29 @@ _optimize_running = False
 _CACHE_TTL_SECONDS = 300  # 5-minute cache TTL
 
 
+_demo_mode = False
+
+
+def enable_demo_mode() -> None:
+    """Switch to demo collectors with fake data."""
+    global _demo_mode
+    _demo_mode = True
+
+
 def _init() -> None:
     """Initialize config and collectors (lazy, once)."""
     global _config, _collectors, _claude
     if _config is not None:
         return
     _config = load_config()
+
+    if _demo_mode:
+        from agenttop.collectors.demo import create_demo_collectors
+
+        _collectors = create_demo_collectors()
+        _claude = _collectors[0][1]  # type: ignore[assignment]
+        return
+
     _claude = ClaudeCodeCollector(_config.claude_dir)
     _collectors = [
         ("Claude Code", _claude),
