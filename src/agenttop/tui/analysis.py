@@ -536,11 +536,10 @@ class AnalysisView(Static):
 
     def _run_analysis(self) -> None:
         """Run data-driven analysis using real stats-cache data."""
-        from agenttop.collectors.claude import ClaudeCodeCollector
-
+        # Find a collector with model usage data (ClaudeCodeCollector or DemoCollector)
         claude_collector = None
         for c in self._collectors:
-            if isinstance(c, ClaudeCodeCollector):
+            if hasattr(c, "get_model_usage"):
                 claude_collector = c
                 break
 

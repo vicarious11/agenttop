@@ -52,12 +52,29 @@ _optimize_running = False
 _CACHE_TTL_SECONDS = 300  # 5-minute cache TTL
 
 
+_demo_mode = False
+
+
+def enable_demo_mode() -> None:
+    """Switch to demo collectors with fake data."""
+    global _demo_mode
+    _demo_mode = True
+
+
 def _init() -> None:
     """Initialize config and collectors (lazy, once)."""
     global _config, _collectors, _claude
     if _config is not None:
         return
     _config = load_config()
+
+    if _demo_mode:
+        from agenttop.collectors.demo import create_demo_collectors
+
+        _collectors = create_demo_collectors()
+        _claude = _collectors[0][1]  # type: ignore[assignment]
+        return
+
     _claude = ClaudeCodeCollector(_config.claude_dir)
     _collectors = [
         ("Claude Code", _claude),
@@ -648,6 +665,11 @@ async def api_analyze_sessions(req: AnalyzeSessionsRequest) -> JSONResponse:
         return JSONResponse({"error": "No session IDs provided"}, status_code=400)
 
     _init()
+
+    # Demo mode: return instant pre-built results (no LLM, no CPU)
+    if _demo_mode:
+        return JSONResponse(_demo_analysis_result(len(req.session_ids)))
+
     from agenttop.web.optimizer import AIUsageOptimizer
 
     # Collect all sessions, filter to requested IDs
@@ -667,7 +689,10 @@ async def api_analyze_sessions(req: AnalyzeSessionsRequest) -> JSONResponse:
         return JSONResponse({"error": "No matching sessions found"}, status_code=404)
 
     stats = _get_all_stats(0)
-    model_usage = _claude.get_model_usage() if _claude and _claude.is_available() else {}
+    model_usage = (
+        _claude.get_model_usage()
+        if _claude and _claude.is_available() else {}
+    )
 
     optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
     try:
@@ -681,9 +706,100 @@ async def api_analyze_sessions(req: AnalyzeSessionsRequest) -> JSONResponse:
     except asyncio.TimeoutError:
         return JSONResponse({"error": "Analysis timed out"}, status_code=504)
     except Exception as e:
-        return JSONResponse({"error": f"Analysis failed: {e}"}, status_code=500)
+        return JSONResponse(
+            {"error": f"Analysis failed: {e}"}, status_code=500,
+        )
 
     return JSONResponse(result)
+
+
+def _demo_analysis_result(session_count: int) -> dict[str, Any]:
+    """Pre-built analysis result for demo mode — no LLM needed."""
+    return {
+        "score": 73,
+        "source": "demo",
+        "developer_profile": {
+            "ai_personality": "power_user",
+            "title": "Infrastructure-First Builder",
+            "bio": (
+                "Systematic developer who leans on AI for complex refactors "
+                "and architecture decisions. Strong cache efficiency from "
+                "well-structured CLAUDE.md files. Tends toward long sessions "
+                "that could benefit from periodic /compact."
+            ),
+            "traits": ["systematic", "cache-efficient", "deep-focus", "multi-tool"],
+        },
+        "grades": {
+            "session_hygiene": {"grade": "B", "detail": "74% of sessions had no correction spirals"},
+            "prompt_quality": {"grade": "A", "detail": "92% of prompts included specific file paths or function names"},
+            "cost_efficiency": {"grade": "C", "detail": "18% estimated waste from marathon sessions"},
+            "cache_efficiency": {"grade": "A", "detail": "87% cache hit rate across all models"},
+            "tool_utilization": {"grade": "B", "detail": "Using 38 of 52 available features"},
+        },
+        "profile_summary": {
+            "total_tokens": 17_842_000,
+            "total_cost": 687.06,
+            "session_count": session_count,
+            "avg_messages": 22,
+            "cache_hit_rate": 0.87,
+            "active_tools": 5,
+        },
+        "cost_forensics": {
+            "total_cost": 687.06,
+            "estimated_waste": 123.67,
+            "waste_pct": 18.0,
+            "cost_by_project": [
+                {"project": "apex-trading-engine", "cost": 284.30, "tokens": 7_200_000},
+                {"project": "vaultkeeper", "cost": 148.50, "tokens": 3_800_000},
+                {"project": "phantom-search", "cost": 97.20, "tokens": 2_900_000},
+                {"project": "neon-ui", "cost": 62.80, "tokens": 1_600_000},
+                {"project": "dataweave", "cost": 51.40, "tokens": 1_200_000},
+            ],
+            "cost_by_model": [
+                {"model": "claude-opus-4-6", "cost": 412.80, "tokens": 5_400_000},
+                {"model": "claude-sonnet-4-6", "cost": 198.40, "tokens": 8_100_000},
+                {"model": "claude-haiku-4-5", "cost": 75.86, "tokens": 4_342_000},
+            ],
+        },
+        "strengths": [
+            {"icon": ">", "title": "Cache mastery", "detail": "87% cache hit rate -- well-structured project context keeps costs down"},
+            {"icon": ">", "title": "Targeted prompts", "detail": "92% of prompts reference specific files, functions, or line numbers"},
+            {"icon": ">", "title": "Multi-tool fluency", "detail": "Productive across 5 tools with consistent patterns"},
+        ],
+        "anti_patterns": [
+            {"pattern": "Marathon sessions (50+ msgs without /compact)", "count": 8},
+            {"pattern": "Correction spirals (3+ redirections)", "count": 5},
+            {"pattern": "Model overkill (Opus for simple edits)", "count": 12},
+        ],
+        "recommendations": [
+            {
+                "title": "Use /compact after 40 messages",
+                "priority": "high",
+                "description": "8 sessions exceeded 50 messages without context management. Context degrades after ~40 messages.",
+                "savings": "~$45/month in reduced waste",
+            },
+            {
+                "title": "Route simple edits to Sonnet",
+                "priority": "high",
+                "description": "12 sessions used Opus for single-file changes. Sonnet handles these at 1/5 the cost.",
+                "savings": "~$80/month",
+            },
+            {
+                "title": "Convert repeated prompts to CLAUDE.md rules",
+                "priority": "medium",
+                "description": "Found 6 prompts repeated 3+ times across sessions. Automate them.",
+                "savings": "~15 minutes/day",
+            },
+        ],
+        "project_insights": [
+            {"project": "apex-trading-engine", "insight": "Highest cost project. 41% of total spend. Deep Opus-heavy sessions averaging 36 messages — consider splitting into sub-tasks."},
+            {"project": "vaultkeeper", "insight": "Strong cache efficiency (94%). Well-structured CLAUDE.md. Good model for other projects."},
+            {"project": "phantom-search", "insight": "Frequent model switching between sessions. Settle on Sonnet for iteration, Opus for architecture only."},
+        ],
+        "workflow": {
+            "summary": "Primary workflow is deep-focus single-tool sessions with Claude Code, supplemented by Cursor for quick edits. Consider using Cursor more for small changes to save Opus tokens.",
+        },
+    }
 
 # --- KB refresh manual trigger ---
 

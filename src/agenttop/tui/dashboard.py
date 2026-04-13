@@ -326,10 +326,8 @@ class DashboardView(Static):
 
         # Daily usage chart — get from Claude collector if available
         try:
-            from agenttop.collectors.claude import ClaudeCodeCollector
-
             for c in collectors:
-                if isinstance(c, ClaudeCodeCollector):
+                if hasattr(c, "get_daily_history"):
                     daily = c.get_daily_history(
                         days=self._days if self._days > 0 else 90
                     )

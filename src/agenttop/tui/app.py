@@ -75,15 +75,22 @@ class AgentTop(App):
         Binding("question_mark", "help", "Help"),
     ]
 
-    def __init__(self, days: int = 0) -> None:
+    def __init__(self, days: int = 0, demo: bool = False) -> None:
         super().__init__()
         self.config = load_config()
         self.db = EventStore()
         self.collectors: list[BaseCollector] = []
         self.days = days
+        self._demo = demo
         self._init_collectors()
 
     def _init_collectors(self) -> None:
+        if self._demo:
+            from agenttop.collectors.demo import create_demo_collectors
+
+            self.collectors = [c for _, c in create_demo_collectors()]
+            return
+
         candidates = [
             ClaudeCodeCollector(self.config.claude_dir),
             CursorCollector(self.config.cursor_dir),

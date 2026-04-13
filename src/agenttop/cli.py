@@ -18,8 +18,9 @@ DAYS_HELP = (
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
 @click.option("--days", default=0, help=DAYS_HELP)
+@click.option("--demo", is_flag=True, help="Demo mode with fake data (safe for recordings).")
 @click.pass_context
-def main(ctx: click.Context, days: int) -> None:
+def main(ctx: click.Context, days: int, demo: bool) -> None:
     """agenttop — htop for AI coding agents.
 
     Monitor token usage, costs, and workflows across Claude Code,
@@ -27,8 +28,9 @@ def main(ctx: click.Context, days: int) -> None:
     """
     ctx.ensure_object(dict)
     ctx.obj["days"] = days
+    ctx.obj["demo"] = demo
     if ctx.invoked_subcommand is None:
-        _launch_tui(days)
+        _launch_tui(days, demo=demo)
 
 
 @main.command()
@@ -184,6 +186,7 @@ def analyze(days: int) -> None:
 @main.command()
 @click.option("--port", default=8420, help="Port for the web dashboard.")
 @click.option("--no-browser", is_flag=True, help="Don't auto-open browser.")
+@click.option("--demo", is_flag=True, help="Demo mode with fake data (safe for recordings).")
 @click.option(
     "--provider",
     type=click.Choice(
@@ -199,6 +202,7 @@ def analyze(days: int) -> None:
 def web(
     port: int,
     no_browser: bool,
+    demo: bool,
     provider: str | None,
     model: str | None,
 ) -> None:
@@ -208,6 +212,12 @@ def web(
     from agenttop.config import load_config
 
     _apply_cli_overrides(provider, model)
+
+    if demo:
+        from agenttop.web.server import enable_demo_mode
+
+        enable_demo_mode()
+        click.echo(click.style("  DEMO MODE", fg="magenta", bold=True) + " — fake data, safe for screenshots")
 
     # Quick non-blocking LLM check — dashboard starts immediately
     # regardless of LLM availability. Optimizer gracefully degrades.
@@ -511,9 +521,9 @@ def _range_label(days: int) -> str:
     return labels.get(days, f"last {days} days")
 
 
-def _launch_tui(days: int = 0) -> None:
+def _launch_tui(days: int = 0, demo: bool = False) -> None:
     """Launch the Textual TUI."""
     from agenttop.tui.app import AgentTop
 
-    app = AgentTop(days=days)
+    app = AgentTop(days=days, demo=demo)
     app.run()
