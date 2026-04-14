@@ -110,14 +110,14 @@ agenttop init         # set up LLM for analysis (ollama/anthropic/openai)
 
 **optimizer** is the interesting part. three phases:
 
-1. **MAP** — takes your top 30 sessions (by cost), sends each to an LLM with full prompt history. classifies: intent (debugging/greenfield/exploration/...), had correction spirals?, prompt quality, wasted effort. results cached per session ID at `~/.agenttop/session_cache.json` — sessions are immutable so they're never re-analyzed. max 10 new sessions per run. concurrent: 1 worker for ollama, 4 for cloud.
+1. **MAP** — takes sessions you selected (or top 100 by cost in auto mode), batches uncached ones into a single LLM call with full prompt history. classifies each: intent (debugging/greenfield/exploration/...), had correction spirals?, prompt quality, wasted effort. if batch fails, falls back to individual calls. results cached per session ID at `~/.agenttop/session_cache.json` — sessions are immutable so they're never re-analyzed. uses ollama locally (free) or your anthropic/openai/openrouter key.
 
 2. **REDUCE** — pure python. no LLM. computes a deterministic score from 5 dimensions (0-20 points each):
-   - session hygiene: `sessions_without_spirals / total × 20`
-   - prompt quality: `sessions_without_waste / total × 20`
-   - cost efficiency: `(1 - waste_pct/100) × 20`
-   - cache efficiency: `cache_hit_rate/100 × 20`
-   - tool utilization: `features_used/features_available × 20`
+   - session hygiene: `sessions_without_spirals / total x 20`
+   - prompt quality: `sessions_without_waste / total x 20`
+   - cost efficiency: `(1 - waste_pct/100) x 20`
+   - cache efficiency: `cache_hit_rate/100 x 20`
+   - tool utilization: `features_used/features_available x 20`
 
    also computes cost forensics (spend by project, by model, waste estimation from marathon sessions) and anti-pattern counts.
 
