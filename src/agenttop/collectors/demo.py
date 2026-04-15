@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Demo collector — Apple Store mode. Realistic fake data for screenshots."""
 
 from __future__ import annotations
@@ -180,6 +181,30 @@ def _make_sessions(
             f"d-{tool.value}-{i}-{name}-{start.isoformat()}".encode(),
         ).hexdigest()[:16]
 
+        # Generate realistic tool breakdown
+        tb: dict[str, int] = {}
+        if tool_calls > 0:
+            tb["Read"] = random.randint(1, max(2, tool_calls // 3))
+            tb["Edit"] = random.randint(1, max(2, tool_calls // 4))
+            tb["Bash"] = random.randint(0, max(1, tool_calls // 4))
+            tb["Grep"] = random.randint(0, max(1, tool_calls // 5))
+            tb["Glob"] = random.randint(0, max(1, tool_calls // 6))
+            tb["Write"] = random.randint(0, 2)
+            tb["Agent"] = random.randint(0, 1)
+            tb = {k: v for k, v in tb.items() if v > 0}
+
+        # Model used for this session
+        model_choices = [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+        ]
+        model_weights = [30, 50, 20]
+        mu: dict[str, int] = {}
+        if tool == ToolName.CLAUDE_CODE:
+            m = random.choices(model_choices, model_weights, k=1)[0]
+            mu[m] = msg_count
+
         sessions.append(Session(
             id=sid,
             tool=tool,
@@ -191,6 +216,8 @@ def _make_sessions(
             total_tokens=tokens,
             estimated_cost_usd=round(cost, 3),
             prompts=prompts,
+            tool_breakdown=tb,
+            models_used=mu,
         ))
 
     sessions.sort(key=lambda s: s.start_time, reverse=True)

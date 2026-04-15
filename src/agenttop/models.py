@@ -48,6 +48,8 @@ class Session(BaseModel):
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
     prompts: list[str] = Field(default_factory=list)
+    tool_breakdown: dict[str, int] = Field(default_factory=dict)
+    models_used: dict[str, int] = Field(default_factory=dict)
 
 
 class ToolStats(BaseModel):
