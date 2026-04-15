@@ -767,6 +767,10 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .se-row-info { flex: 1; min-width: 0; }
 .se-row-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .se-row-meta { font-size: 10px; color: var(--text-muted); }
+.se-row-tools { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
+.se-tool-chip { font-size: 9px; padding: 1px 5px; border-radius: 6px; background: var(--accent-dim); color: var(--accent); font-family: var(--font-mono); }
+.se-model-chip { font-size: 9px; padding: 1px 5px; border-radius: 6px; background: rgba(249,115,22,0.1); color: var(--tool-claude); font-family: var(--font-mono); }
+.se-detail-tools { display: flex; gap: 4px; flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-subtle); }
 .se-row-preview { font-size: 10px; color: var(--text-dim); font-style: italic; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .se-detail-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3); border-bottom: 1px solid var(--border-default); }

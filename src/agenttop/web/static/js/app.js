@@ -106,7 +106,7 @@ const App = {
         fetch(`/api/stats?days=${App.days}`),
         fetch('/api/models'),
         fetch('/api/hours'),
-        fetch(`/api/sessions?days=${App.days || 7}`),
+        fetch(`/api/sessions?days=${App.days}`),
         fetch(`/api/budget?days=${App.days}`),
         fetch(`/api/activity?days=${App.days}`),
       ]);

@@ -31,7 +31,13 @@ const SessionExplorer = {
     const sortFns = {
       time: (a, b) => new Date(b.start_time || 0) - new Date(a.start_time || 0),
       cost: (a, b) => (b.estimated_cost_usd || 0) - (a.estimated_cost_usd || 0),
+      cost_asc: (a, b) => (a.estimated_cost_usd || 0) - (b.estimated_cost_usd || 0),
       tokens: (a, b) => (b.total_tokens || 0) - (a.total_tokens || 0),
+      duration: (a, b) => {
+        const da = a.end_time && a.start_time ? new Date(a.end_time) - new Date(a.start_time) : 0;
+        const db = b.end_time && b.start_time ? new Date(b.end_time) - new Date(b.start_time) : 0;
+        return db - da;
+      },
     };
     list.sort(sortFns[this._sort] || sortFns.time);
     this._filtered = list;
@@ -123,7 +129,7 @@ const SessionExplorer = {
 
     const tools = [...new Set(this._sessions.map(s => s.tool))].sort();
     const toolOpts = tools.map(t => `<option value="${t}" ${this._filters.tool === t ? 'selected' : ''}>${this._toolName(t)}</option>`).join('');
-    const sortOpts = [['time', 'Recent'], ['cost', 'Cost'], ['tokens', 'Tokens']].map(([v, l]) =>
+    const sortOpts = [['time', 'Recent'], ['cost', 'Top Cost'], ['cost_asc', 'Least Cost'], ['tokens', 'Most Tokens'], ['duration', 'Longest']].map(([v, l]) =>
       `<option value="${v}" ${this._sort === v ? 'selected' : ''}>${l}</option>`
     ).join('');
 
@@ -179,12 +185,20 @@ const SessionExplorer = {
       const cost = s.estimated_cost_usd > 0 ? App.formatCost(s.estimated_cost_usd) : '';
       const dur = this._dur(s);
 
+      // Tool breakdown chips
+      const tb = s.tool_breakdown || {};
+      const tbKeys = Object.keys(tb).sort((a, b) => tb[b] - tb[a]).slice(0, 4);
+      const tbChips = tbKeys.length > 0
+        ? tbKeys.map(t => `<span class="se-tool-chip">${t} ${tb[t]}</span>`).join('')
+        : '';
+
       html += `
         <div class="se-row${active}" data-id="${this._esc(s.id)}" data-idx="${offset + i}">
           <span class="se-dot" style="background:${color}"></span>
           <div class="se-row-info">
             <span class="se-row-name">${this._esc(name)}</span>
             <span class="se-row-meta">${this._toolName(s.tool)} \u00b7 ${this._ago(s)}${dur ? ' \u00b7 ' + dur : ''}${cost ? ' \u00b7 ' + cost : ''}</span>
+            ${tbChips ? `<span class="se-row-tools">${tbChips}</span>` : ''}
             ${preview ? `<span class="se-row-preview">${preview}</span>` : ''}
           </div>
         </div>`;
@@ -250,6 +264,19 @@ const SessionExplorer = {
         ${dur ? `<span>${dur}</span>` : ''}<span>${msgs} msgs</span><span>${toolCalls} calls</span><span>${tokens} tok</span><span>${cost}</span>
       </div>
       <div class="se-detail-stats">${started} \u00b7 ${prompts.length} prompts</div>
+      ${Object.keys(session.tool_breakdown || {}).length > 0 ? `
+        <div class="se-detail-tools">
+          ${Object.entries(session.tool_breakdown).sort((a, b) => b[1] - a[1]).map(([t, c]) =>
+            `<span class="se-tool-chip">${t} <b>${c}</b></span>`
+          ).join('')}
+        </div>` : ''}
+      ${Object.keys(session.models_used || {}).length > 0 ? `
+        <div class="se-detail-tools">
+          ${Object.entries(session.models_used).map(([m, c]) => {
+            const short = m.replace('claude-', '').replace(/-\d{8,}$/, '');
+            return `<span class="se-model-chip">${short} <b>${c}</b></span>`;
+          }).join('')}
+        </div>` : ''}
       <div class="se-detail-prompts">
         ${prompts.length === 0 ? '<div class="se-detail-empty">No prompts</div>' :
           prompts.map((p, i) => `<div class="se-prompt"><span class="se-prompt-n">${i + 1}</span><span class="se-prompt-t">${this._esc(p.length > 300 ? p.slice(0, 300) + '...' : p)}</span></div>`).join('')}
