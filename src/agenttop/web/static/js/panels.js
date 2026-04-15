@@ -254,4 +254,85 @@ const Panels = {
       }).join('')}
     `;
   },
+
+  /* ═══════════════════════════════════════════════════════
+     ACTIVITY BREAKDOWN + ONE-SHOT RATE
+     ═══════════════════════════════════════════════════════ */
+
+  ACTIVITY_COLORS: {
+    coding: '#34d399', debugging: '#f87171', testing: '#fbbf24',
+    exploration: '#22d3ee', refactoring: '#c084fc', git_ops: '#60a5fa',
+    planning: '#f97316', other: '#71717a',
+  },
+
+  renderActivity(data) {
+    const el = document.getElementById('activity-content');
+    const badge = document.getElementById('oneshot-badge');
+    if (!data || !data.activities) {
+      el.innerHTML = '<div class="panel-empty">No activity data</div>';
+      return;
+    }
+
+    const acts = data.activities;
+    const rate = data.oneshot_rate || 0;
+    const total = Object.values(acts).reduce((s, v) => s + v, 0);
+
+    if (badge) {
+      const rateColor = rate >= 80 ? 'var(--success)' : rate >= 60 ? 'var(--warning)' : 'var(--error)';
+      badge.innerHTML = `<span style="color:${rateColor};font-weight:700">${rate.toFixed(0)}% one-shot</span>`;
+    }
+
+    if (total === 0) {
+      el.innerHTML = '<div class="panel-empty">No sessions</div>';
+      return;
+    }
+
+    const maxVal = Math.max(...Object.values(acts));
+
+    el.innerHTML = Object.entries(acts)
+      .filter(([, v]) => v > 0)
+      .map(([act, count]) => {
+        const pct = (count / total * 100).toFixed(0);
+        const color = Panels.ACTIVITY_COLORS[act] || '#71717a';
+        const barW = Math.max((count / maxVal * 100), 2).toFixed(1);
+        const name = act.replace('_', ' ');
+        return `
+          <div class="activity-row">
+            <span class="activity-name">${name}</span>
+            <div class="activity-bar-track">
+              <div class="activity-bar-fill" style="width:${barW}%;background:${color}"></div>
+            </div>
+            <span class="activity-pct" style="color:${color}">${pct}%</span>
+            <span class="activity-count">${count}</span>
+          </div>`;
+      }).join('');
+  },
+
+  /* ═══════════════════════════════════════════════════════
+     COST BY PROJECT
+     ═══════════════════════════════════════════════════════ */
+
+  renderProjectCost(data) {
+    const el = document.getElementById('project-cost-content');
+    if (!data || !data.cost_by_project || data.cost_by_project.length === 0) {
+      el.innerHTML = '<div class="panel-empty">No project data</div>';
+      return;
+    }
+
+    const projects = data.cost_by_project;
+    const maxCost = projects[0].cost || 1;
+
+    el.innerHTML = projects.map(p => {
+      const barW = Math.max((p.cost / maxCost * 100), 2).toFixed(1);
+      return `
+        <div class="pcost-row">
+          <span class="pcost-name">${p.project}</span>
+          <div class="pcost-bar-track">
+            <div class="pcost-bar-fill" style="width:${barW}%"></div>
+          </div>
+          <span class="pcost-val">${App.formatCost(p.cost)}</span>
+          <span class="pcost-sess">${p.sessions}s</span>
+        </div>`;
+    }).join('');
+  },
 };

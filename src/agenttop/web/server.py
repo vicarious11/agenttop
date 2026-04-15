@@ -141,6 +141,23 @@ def _build_session_index() -> dict[str, Any]:
     return index
 
 
+@app.get("/api/activity")
+def api_activity(days: int = 0) -> JSONResponse:
+    """Activity classification, one-shot rate, cost by project."""
+    from agenttop.analysis.classifier import (
+        classify_sessions,
+        compute_cost_by_project,
+        compute_oneshot_rate,
+    )
+
+    sessions = _collect_all_sessions(days)
+    return JSONResponse({
+        "activities": classify_sessions(sessions),
+        "oneshot_rate": compute_oneshot_rate(sessions),
+        "cost_by_project": compute_cost_by_project(sessions)[:10],
+    })
+
+
 @app.get("/api/sessions")
 def api_sessions(days: int = 7) -> JSONResponse:
     sessions = _collect_all_sessions(days)
