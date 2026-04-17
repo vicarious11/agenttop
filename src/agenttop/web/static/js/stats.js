@@ -4,7 +4,7 @@ const Stats = {
   _prevValues: {},
   _currentBudget: null,
 
-  render(stats, budget = null) {
+  render(stats, budget = null, models = null) {
     Stats._currentBudget = budget;
     const ribbon = document.getElementById('stats-ribbon');
     if (!stats || stats.length === 0) {
@@ -12,8 +12,21 @@ const Stats = {
       return;
     }
 
+    // Compute total tokens from model usage (includes cache) if available
+    let totalTokens = stats.reduce((s, t) => s + (t.tokens_today || 0), 0);
+    let tokenLabel = 'Tokens';
+    if (models && typeof models === 'object') {
+      const modelTotal = Object.values(models).reduce((s, u) => {
+        return s + (u.inputTokens || 0) + (u.outputTokens || 0) + (u.cacheReadInputTokens || 0);
+      }, 0);
+      if (modelTotal > totalTokens) {
+        totalTokens = modelTotal;
+        tokenLabel = 'Total Tok';
+      }
+    }
+
     const totals = {
-      tokens: stats.reduce((s, t) => s + (t.tokens_today || 0), 0),
+      tokens: totalTokens,
       cost: stats.reduce((s, t) => s + (t.estimated_cost_today || 0), 0),
       sessions: stats.reduce((s, t) => s + (t.sessions_today || 0), 0),
       messages: stats.reduce((s, t) => s + (t.messages_today || 0), 0),
@@ -21,7 +34,7 @@ const Stats = {
     };
 
     const items = [
-      { key: 'tokens', label: 'Tokens', value: App.formatNum(totals.tokens), raw: totals.tokens, color: 'var(--neon-cyan)' },
+      { key: 'tokens', label: tokenLabel, value: App.formatNum(totals.tokens), raw: totals.tokens, color: 'var(--neon-cyan)' },
       { key: 'cost', label: 'Cost', value: App.formatCost(totals.cost), raw: totals.cost, color: 'var(--neon-orange)' },
       { key: 'sessions', label: 'Sessions', value: totals.sessions.toLocaleString(), raw: totals.sessions, color: 'var(--neon-green)' },
       { key: 'messages', label: 'Messages', value: App.formatNum(totals.messages), raw: totals.messages, color: 'var(--neon-magenta)' },

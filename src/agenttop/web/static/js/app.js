@@ -121,7 +121,7 @@ const App = {
 
       // Render all panels
       Graph.render(App.data.graph);
-      Stats.render(App.data.stats, App.data.budget);
+      Stats.render(App.data.stats, App.data.budget, App.data.models);
       App.renderToolBar(App.data.stats);
       Panels.renderModels(App.data.models);
       Panels.renderHourly(App.data.hours);
