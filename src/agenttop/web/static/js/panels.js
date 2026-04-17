@@ -161,17 +161,31 @@ const Panels = {
       return;
     }
 
-    const nDays = days > 0 ? days : 30;
     const byDay = {};
+    let earliest = null;
     sessions.forEach(s => {
       if (!s.start_time) return;
       const cost = s.estimated_cost_usd || 0;
-      const key = Panels._localDayKey(new Date(s.start_time));
+      const start = new Date(s.start_time);
+      const key = Panels._localDayKey(start);
       byDay[key] = (byDay[key] || 0) + cost;
+      if (earliest === null || start < earliest) earliest = start;
     });
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    let nDays;
+    if (days > 0) {
+      nDays = days;
+    } else if (earliest) {
+      const earliestDay = new Date(earliest);
+      earliestDay.setHours(0, 0, 0, 0);
+      const spanDays = Math.round((today - earliestDay) / 86400000) + 1;
+      nDays = Math.max(spanDays, 7);
+    } else {
+      nDays = 7;
+    }
+
     const bars = [];
     for (let i = nDays - 1; i >= 0; i--) {
       const d = new Date(today);

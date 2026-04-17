@@ -265,7 +265,7 @@ class DailyCostSparkline(Static):
         yield Static("", id="daily-xaxis", classes="chart-xaxis")
 
     def refresh_data(
-        self, sessions: list[Session], days: int = 30,
+        self, sessions: list[Session], days: int = 0,
     ) -> None:
         daily: dict[str, float] = defaultdict(float)
         for s in sessions:
@@ -273,7 +273,14 @@ class DailyCostSparkline(Static):
                 s.estimated_cost_usd
             )
         now = datetime.now()
-        nd = days if days > 0 else 30
+        if days > 0:
+            nd = days
+        elif sessions:
+            # "All time" — span from the earliest session to today.
+            earliest = min(s.start_time for s in sessions)
+            nd = max((now.date() - earliest.date()).days + 1, 7)
+        else:
+            nd = 7
         values: list[float] = []
         dates: list[str] = []
         for d in range(nd):
