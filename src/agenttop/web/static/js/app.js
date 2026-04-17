@@ -125,6 +125,7 @@ const App = {
       App.renderToolBar(App.data.stats);
       Panels.renderModels(App.data.models);
       Panels.renderHourly(App.data.hours);
+      Panels.renderDailyCost(App.data.sessions, App.days);
       Panels.renderCost(App.data.stats);
       Panels.renderActivity(App.data.activity);
       Panels.renderProjectCost(App.data.activity);

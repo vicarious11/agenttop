@@ -143,6 +143,82 @@ const Panels = {
   },
 
   /* ═══════════════════════════════════════════════════════
+     DAILY COST — Histogram of cost per day
+     ═══════════════════════════════════════════════════════ */
+  _localDayKey(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  },
+
+  renderDailyCost(sessions, days) {
+    const el = document.getElementById('daily-cost-content');
+    const summary = document.getElementById('daily-cost-summary');
+    if (!sessions || sessions.length === 0) {
+      el.innerHTML = '<div class="panel-empty">No cost data</div>';
+      if (summary) summary.textContent = '';
+      return;
+    }
+
+    const nDays = days > 0 ? days : 30;
+    const byDay = {};
+    sessions.forEach(s => {
+      if (!s.start_time) return;
+      const cost = s.estimated_cost_usd || 0;
+      const key = Panels._localDayKey(new Date(s.start_time));
+      byDay[key] = (byDay[key] || 0) + cost;
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const bars = [];
+    for (let i = nDays - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = Panels._localDayKey(d);
+      bars.push({ date: key, cost: byDay[key] || 0, day: d });
+    }
+
+    // Floor to avoid div-by-zero when all bars are zero
+    const max = Math.max(...bars.map(b => b.cost), 0.001);
+    const total = bars.reduce((s, b) => s + b.cost, 0);
+    const nonZero = bars.filter(b => b.cost > 0);
+    const avg = nonZero.length > 0 ? total / nonZero.length : 0;
+    const peakBar = bars.reduce((a, b) => b.cost > a.cost ? b : a, bars[0]);
+    const peakLabel = peakBar.date.slice(5);
+
+    if (summary) {
+      summary.textContent = peakBar.cost > 0
+        ? `peak ${App.formatCost(peakBar.cost)} ${peakLabel}`
+        : '';
+    }
+
+    el.innerHTML = `
+      <div class="daily-chart">
+        ${bars.map(b => {
+          const pct = Math.max((b.cost / max * 100), b.cost > 0 ? 2 : 0);
+          const intensity = b.cost / max;
+          const opacity = b.cost > 0 ? (0.35 + intensity * 0.65) : 0.1;
+          const label = b.date.slice(5);
+          return `
+            <div class="day-col" title="${label}: ${App.formatCost(b.cost)}">
+              <div class="day-bar-wrap">
+                <div class="day-bar" style="height:${pct}%;opacity:${opacity}"></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="daily-foot">
+        <span>total ${App.formatCost(total)}</span>
+        <span>avg ${App.formatCost(avg)}/d</span>
+        <span>${nDays}d</span>
+      </div>
+    `;
+  },
+
+  /* ═══════════════════════════════════════════════════════
      RECENT SESSIONS — Compact scrollable list
      ═══════════════════════════════════════════════════════ */
   renderSessions(sessions) {

@@ -196,6 +196,38 @@ class OneshotPanel(Static):
         )
 
 
+class HourlyActivityPanel(Static):
+    """Hourly token activity — 24-hour sparkline."""
+
+    def compose(self) -> ComposeResult:
+        yield Sparkline([], id="hourly-spark")
+
+    def refresh_data(self, stats: list[ToolStats]) -> None:
+        hourly = [0] * 24
+        for s in stats:
+            for i, v in enumerate(s.hourly_tokens[:24]):
+                hourly[i] += v
+
+        try:
+            spark = self.query_one("#hourly-spark", Sparkline)
+            spark.data = hourly
+        except Exception:
+            pass
+
+        total = sum(hourly)
+        peak_idx = hourly.index(max(hourly)) if total > 0 else 0
+        peak_label = (
+            f"{peak_idx:02d}:00" if total > 0 else "--:--"
+        )
+        try:
+            self.border_subtitle = (
+                f"total {human_tokens(total)} "
+                f" peak {peak_label}"
+            )
+        except Exception:
+            pass
+
+
 class DailyCostSparkline(Static):
     """Wrapper around Textual Sparkline for daily cost."""
 
@@ -254,32 +286,35 @@ class DashboardView(Static):
         content-align: center middle;
     }
 
-    #dash-row-1 { height: 12; }
-    #dash-row-2 { height: 11; }
-    #dash-row-3 { height: 1fr; }
+    #dash-row-1 { height: 11; }
+    #dash-row-2 { height: 10; }
+    #dash-row-3 { height: 10; }
+    #dash-row-4 { height: 1fr; }
 
     #cost-project, #cost-model,
-    #daily-cost, #activity,
+    #daily-cost, #hourly, #activity,
     #tools, #oneshot {
         width: 1fr;
         border: round $accent 30%;
         padding: 0 1;
     }
 
-    #daily-cost { padding: 0; }
+    #daily-cost, #hourly { padding: 0; }
 
-    DailyCostSparkline {
+    DailyCostSparkline, HourlyActivityPanel {
         width: 1fr;
         border: round $accent 30%;
         height: 100%;
     }
 
-    #spark {
+    #spark, #hourly-spark {
         height: 5;
         margin: 0 1;
     }
     #spark > .sparkline--max-color { color: $warning; }
     #spark > .sparkline--min-color { color: $accent; }
+    #hourly-spark > .sparkline--max-color { color: $success; }
+    #hourly-spark > .sparkline--min-color { color: $accent; }
     """
 
     def __init__(
@@ -305,16 +340,20 @@ class DashboardView(Static):
             sp = DailyCostSparkline(id="daily-cost")
             sp.border_title = "DAILY COST"
             yield sp
+            hp = HourlyActivityPanel(id="hourly")
+            hp.border_title = "HOURLY ACTIVITY"
+            yield hp
+        with Horizontal(id="dash-row-3"):
             p4 = ActivityPanel(id="activity")
             p4.border_title = "ACTIVITY"
             yield p4
-        with Horizontal(id="dash-row-3"):
-            p5 = ToolsPanel(id="tools")
-            p5.border_title = "TOOLS"
-            yield p5
             p6 = OneshotPanel(id="oneshot")
             p6.border_title = "ONE-SHOT RATE"
             yield p6
+        with Horizontal(id="dash-row-4"):
+            p5 = ToolsPanel(id="tools")
+            p5.border_title = "TOOLS"
+            yield p5
 
     def on_mount(self) -> None:
         self.refresh_stats(self._collectors, self._days)
@@ -378,6 +417,9 @@ class DashboardView(Static):
             ),
             lambda: self.query_one(DailyCostSparkline).refresh_data(
                 all_sessions, self._days,
+            ),
+            lambda: self.query_one(HourlyActivityPanel).refresh_data(
+                all_stats,
             ),
             lambda: self.query_one(ActivityPanel).refresh_data(
                 classify_sessions(all_sessions),
