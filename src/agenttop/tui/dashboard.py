@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Sparkline, Static
 
 from agenttop.analysis.classifier import (
@@ -319,11 +319,16 @@ class DailyCostSparkline(Static):
             pass
 
 
-class DashboardView(Static):
-    """Main dashboard — 6 panels in a 2x3 grid."""
+class DashboardView(VerticalScroll):
+    """Main dashboard — 7 panels stacked in rows; scrollable."""
 
     DEFAULT_CSS = """
-    DashboardView { height: 1fr; }
+    DashboardView {
+        height: 1fr;
+        scrollbar-size: 1 1;
+        scrollbar-color: $accent;
+        scrollbar-background: $surface;
+    }
 
     StatsBar {
         dock: top; height: 3;
@@ -335,7 +340,7 @@ class DashboardView(Static):
     #dash-row-1 { height: 11; }
     #dash-row-2 { height: 9; }
     #dash-row-3 { height: 10; }
-    #dash-row-4 { height: 1fr; }
+    #dash-row-4 { height: auto; min-height: 10; }
 
     #cost-project, #cost-model,
     #activity, #tools, #oneshot {
