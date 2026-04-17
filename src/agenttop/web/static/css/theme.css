@@ -291,6 +291,7 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .model-stats { display: flex; gap: var(--sp-3); font-size: var(--text-xs); font-family: var(--font-mono); }
 .model-tokens { color: var(--text-secondary); }
 .model-cost { color: var(--tool-claude); }
+.model-breakdown { display: flex; gap: var(--sp-2); font-size: 9px; font-family: var(--font-mono); color: var(--text-dim); padding-top: 1px; }
 .model-bar-track { height: 4px; background: var(--bg-elevated); border-radius: 2px; display: flex; overflow: hidden; }
 .model-seg { height: 100%; transition: width var(--duration-normal); }
 .seg-input  { background: var(--accent); opacity: 0.8; }

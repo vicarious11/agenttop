@@ -77,7 +77,7 @@ const Panels = {
       const iPct = (m.input  / maxBilled * 100).toFixed(2);
       const oPct = (m.output / maxBilled * 100).toFixed(2);
       return `
-        <div class="model-row">
+        <div class="model-row" title="In: ${App.formatNum(m.input)} | Out: ${App.formatNum(m.output)} | Cache: ${App.formatNum(m.cache)}">
           <div class="model-info">
             <span class="model-name" style="color:${m.color}">${m.name}</span>
             <span class="model-stats">
@@ -88,6 +88,11 @@ const Panels = {
           <div class="model-bar-track">
             <div class="model-seg seg-input" style="width:${iPct}%" title="Input: ${App.formatNum(m.input)}"></div>
             <div class="model-seg seg-output" style="width:${oPct}%" title="Output: ${App.formatNum(m.output)}"></div>
+          </div>
+          <div class="model-breakdown">
+            <span>in ${App.formatNum(m.input)}</span>
+            <span>out ${App.formatNum(m.output)}</span>
+            ${m.cache > 0 ? `<span>cache ${App.formatNum(m.cache)}</span>` : ''}
           </div>
         </div>
       `;
