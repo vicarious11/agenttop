@@ -81,6 +81,7 @@ class _ParsedMessage:
     __slots__ = (
         "timestamp", "model", "input_tokens", "output_tokens",
         "cache_read", "cache_create", "tool_calls", "content_type",
+        "tool_names",
     )
 
     def __init__(
@@ -93,6 +94,7 @@ class _ParsedMessage:
         cache_create: int,
         tool_calls: int,
         content_type: str,
+        tool_names: list[str] | None = None,
     ) -> None:
         self.timestamp = timestamp
         self.model = model
@@ -102,6 +104,7 @@ class _ParsedMessage:
         self.cache_create = cache_create
         self.tool_calls = tool_calls
         self.content_type = content_type
+        self.tool_names = tool_names or []
 
 
 class _ParsedSession:
@@ -111,7 +114,7 @@ class _ParsedSession:
         "session_id", "project", "start_time", "end_time",
         "user_messages", "prompts", "messages",
         "input_tokens", "output_tokens", "cache_read", "cache_create",
-        "tool_calls", "models_used", "_cwd_set",
+        "tool_calls", "models_used", "tool_name_counts", "_cwd_set",
     )
 
     def __init__(self, session_id: str, project: str) -> None:
@@ -127,7 +130,8 @@ class _ParsedSession:
         self.cache_read: int = 0
         self.cache_create: int = 0
         self.tool_calls: int = 0
-        self.models_used: dict[str, int] = defaultdict(int)
+        self.models_used: dict[str, dict] = {}
+        self.tool_name_counts: dict[str, int] = defaultdict(int)
         self._cwd_set: bool = False
 
     @property
@@ -305,14 +309,17 @@ class ClaudeCodeCollector(BaseCollector):
         cache_read = usage.get("cache_read_input_tokens", 0)
         cache_create = usage.get("cache_creation_input_tokens", 0)
 
-        # Count tool_use content blocks
+        # Count tool_use content blocks and extract tool names
         tool_calls = 0
         content_type = "text"
+        tool_names: list[str] = []
         for block in msg.get("content", []):
             block_type = block.get("type", "")
             if block_type == "tool_use":
                 tool_calls += 1
                 content_type = "tool_use"
+                tool_name = block.get("name", "unknown")
+                tool_names.append(tool_name)
 
         if ts:
             if session.start_time is None or ts < session.start_time:
@@ -329,6 +336,7 @@ class ClaudeCodeCollector(BaseCollector):
             cache_create=cache_create,
             tool_calls=tool_calls,
             content_type=content_type,
+            tool_names=tool_names,
         )
         session.messages.append(parsed)
 
@@ -338,7 +346,20 @@ class ClaudeCodeCollector(BaseCollector):
         session.cache_read += cache_read
         session.cache_create += cache_create
         session.tool_calls += tool_calls
-        session.models_used[model] += 1
+        for tn in tool_names:
+            session.tool_name_counts[tn] += 1
+        if model not in session.models_used:
+            session.models_used[model] = {
+                "inputTokens": 0, "outputTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0, "count": 0,
+            }
+        mu = session.models_used[model]
+        mu["inputTokens"] += input_tokens
+        mu["outputTokens"] += output_tokens
+        mu["cacheReadInputTokens"] += cache_read
+        mu["cacheCreationInputTokens"] += cache_create
+        mu["count"] += 1
 
     # ──────────────────────────────────────────────────────────
     #  SECONDARY: Legacy stats-cache.json + history.jsonl
@@ -605,6 +626,8 @@ class ClaudeCodeCollector(BaseCollector):
                 total_tokens=p.billed_tokens,
                 estimated_cost_usd=p.cost(),
                 prompts=p.prompts,
+                tool_breakdown=dict(p.tool_name_counts),
+                models_used=dict(p.models_used),
             ))
         return sessions
 

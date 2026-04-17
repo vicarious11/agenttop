@@ -17,7 +17,7 @@ DAYS_HELP = (
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
-@click.option("--days", default=0, help=DAYS_HELP)
+@click.option("--days", default=30, help=DAYS_HELP)
 @click.option("--demo", is_flag=True, help="Demo mode with fake data (safe for recordings).")
 @click.pass_context
 def main(ctx: click.Context, days: int, demo: bool) -> None:
@@ -34,7 +34,7 @@ def main(ctx: click.Context, days: int, demo: bool) -> None:
 
 
 @main.command()
-@click.option("--days", default=0, help=DAYS_HELP)
+@click.option("--days", default=30, help=DAYS_HELP)
 def dashboard(days: int) -> None:
     """Launch the interactive TUI dashboard."""
     _launch_tui(days)
@@ -65,7 +65,7 @@ def init() -> None:
 
 
 @main.command()
-@click.option("--days", default=0, help=DAYS_HELP)
+@click.option("--days", default=30, help=DAYS_HELP)
 def stats(days: int) -> None:
     """Show quick stats summary (non-interactive)."""
     from agenttop.collectors.claude import ClaudeCodeCollector
@@ -141,7 +141,7 @@ def stats(days: int) -> None:
 
 
 @main.command()
-@click.option("--days", default=0, help=DAYS_HELP)
+@click.option("--days", default=30, help=DAYS_HELP)
 def analyze(days: int) -> None:
     """Run workflow analysis and show recommendations."""
     from datetime import datetime, timedelta

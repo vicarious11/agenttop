@@ -291,6 +291,7 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .model-stats { display: flex; gap: var(--sp-3); font-size: var(--text-xs); font-family: var(--font-mono); }
 .model-tokens { color: var(--text-secondary); }
 .model-cost { color: var(--tool-claude); }
+.model-breakdown { display: flex; gap: var(--sp-2); font-size: 9px; font-family: var(--font-mono); color: var(--text-dim); padding-top: 1px; }
 .model-bar-track { height: 4px; background: var(--bg-elevated); border-radius: 2px; display: flex; overflow: hidden; }
 .model-seg { height: 100%; transition: width var(--duration-normal); }
 .seg-input  { background: var(--accent); opacity: 0.8; }
@@ -314,6 +315,31 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .hour-now .hour-bar { background: var(--tool-claude); }
 .hour-label { font-size: 9px; color: var(--text-dim); margin-top: 2px; position: absolute; bottom: 0; }
 .hour-label-spacer { height: 14px; }
+
+/* ══════════════════════════════════════════════════════
+   DAILY COST CHART
+   ══════════════════════════════════════════════════════ */
+
+.daily-chart {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 72px; padding: 2px 0;
+}
+.day-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; min-width: 3px; }
+.day-bar-wrap { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.day-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: var(--tool-claude);
+  transition: height var(--duration-normal), opacity var(--duration-fast);
+  min-height: 1px;
+}
+.day-col:hover .day-bar { opacity: 1 !important; background: var(--warning); }
+.daily-foot {
+  display: flex; justify-content: space-between;
+  font-size: var(--text-xs); color: var(--text-muted);
+  padding: 6px 2px 0; font-family: var(--font-mono);
+}
+.daily-foot span { white-space: nowrap; }
 
 /* ══════════════════════════════════════════════════════
    SESSIONS (static list in panels.js — kept for compat)
@@ -352,6 +378,22 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .cost-bar-fill { height: 100%; border-radius: 2px; transition: width var(--duration-normal); }
 .cost-value { font-family: var(--font-mono); font-size: var(--text-xs); min-width: 50px; text-align: right; color: var(--text-secondary); }
 .cost-badge { }
+
+/* ── Activity Panel ── */
+.activity-row { display: flex; align-items: center; gap: var(--sp-2); padding: 3px 0; }
+.activity-name { font-size: var(--text-xs); color: var(--text-secondary); min-width: 80px; text-transform: capitalize; }
+.activity-bar-track { flex: 1; height: 4px; background: var(--bg-elevated); border-radius: 2px; overflow: hidden; }
+.activity-bar-fill { height: 100%; border-radius: 2px; }
+.activity-pct { font-size: var(--text-xs); font-weight: 600; min-width: 30px; text-align: right; }
+.activity-count { font-size: 10px; font-family: var(--font-mono); color: var(--text-dim); min-width: 25px; text-align: right; }
+
+/* ── Project Cost Panel ── */
+.pcost-row { display: flex; align-items: center; gap: var(--sp-2); padding: 3px 0; }
+.pcost-name { font-size: var(--text-xs); color: var(--text-secondary); min-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcost-bar-track { flex: 1; height: 4px; background: var(--bg-elevated); border-radius: 2px; overflow: hidden; }
+.pcost-bar-fill { height: 100%; border-radius: 2px; background: var(--accent); }
+.pcost-val { font-size: var(--text-xs); font-family: var(--font-mono); color: var(--warning); min-width: 45px; text-align: right; }
+.pcost-sess { font-size: 10px; color: var(--text-dim); min-width: 20px; text-align: right; }
 
 /* ══════════════════════════════════════════════════════
    GRAPH SVG ELEMENTS
@@ -751,6 +793,10 @@ h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--sp-3); co
 .se-row-info { flex: 1; min-width: 0; }
 .se-row-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .se-row-meta { font-size: 10px; color: var(--text-muted); }
+.se-row-tools { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 2px; }
+.se-tool-chip { font-size: 9px; padding: 1px 5px; border-radius: 6px; background: var(--accent-dim); color: var(--accent); font-family: var(--font-mono); }
+.se-model-chip { font-size: 9px; padding: 1px 5px; border-radius: 6px; background: rgba(249,115,22,0.1); color: var(--tool-claude); font-family: var(--font-mono); }
+.se-detail-tools { display: flex; gap: 4px; flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border-subtle); }
 .se-row-preview { font-size: 10px; color: var(--text-dim); font-style: italic; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .se-detail-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3); border-bottom: 1px solid var(--border-default); }

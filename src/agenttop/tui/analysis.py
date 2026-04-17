@@ -6,7 +6,7 @@ import json
 from collections import Counter
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Button, Label, Static
 from textual.worker import Worker, WorkerState
 from textual_plotext import PlotextPlot
@@ -483,12 +483,15 @@ def _detect_model_shift(daily_model_tokens: list[dict]) -> str:
     return ""
 
 
-class AnalysisView(Static):
+class AnalysisView(VerticalScroll):
     """Model usage, temporal patterns, and data-driven insights."""
 
     DEFAULT_CSS = """
     AnalysisView {
         height: 1fr;
+        scrollbar-size: 1 1;
+        scrollbar-color: $accent;
+        scrollbar-background: $surface;
     }
     AnalysisView Label {
         padding: 0 2;
@@ -498,15 +501,9 @@ class AnalysisView(Static):
     AnalysisView Button {
         margin: 1 2;
     }
-    #analysis-charts-row {
-        height: 16;
-    }
-    #analysis-charts-row-2 {
-        height: 16;
-    }
-    #analysis-charts-row-3 {
-        height: 16;
-    }
+    #analysis-charts-row { height: 16; }
+    #analysis-charts-row-2 { height: 16; }
+    #analysis-charts-row-3 { height: 16; }
     """
 
     def __init__(self, collectors: list[BaseCollector], db: EventStore) -> None:

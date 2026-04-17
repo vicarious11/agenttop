@@ -1,7 +1,7 @@
 /* agenttop — Main application controller v3 */
 
 const App = {
-  days: 0,
+  days: 30,
   ws: null,
   _currentTab: 'overview',
   data: { graph: null, stats: [], models: {}, hours: {}, sessions: [] },
@@ -101,13 +101,14 @@ const App = {
 
   async refresh() {
     try {
-      const [graphRes, statsRes, modelsRes, hoursRes, sessionsRes, budgetRes] = await Promise.all([
+      const [graphRes, statsRes, modelsRes, hoursRes, sessionsRes, budgetRes, activityRes] = await Promise.all([
         fetch(`/api/graph?days=${App.days}`),
         fetch(`/api/stats?days=${App.days}`),
         fetch('/api/models'),
         fetch('/api/hours'),
-        fetch(`/api/sessions?days=${App.days || 7}`),
+        fetch(`/api/sessions?days=${App.days}`),
         fetch(`/api/budget?days=${App.days}`),
+        fetch(`/api/activity?days=${App.days}`),
       ]);
 
       App.data.graph    = await graphRes.json();
@@ -116,14 +117,18 @@ const App = {
       App.data.hours    = await hoursRes.json();
       App.data.sessions = await sessionsRes.json();
       App.data.budget   = await budgetRes.json();
+      App.data.activity = await activityRes.json();
 
       // Render all panels
       Graph.render(App.data.graph);
-      Stats.render(App.data.stats, App.data.budget);
+      Stats.render(App.data.stats, App.data.budget, App.data.models);
       App.renderToolBar(App.data.stats);
       Panels.renderModels(App.data.models);
       Panels.renderHourly(App.data.hours);
+      Panels.renderDailyCost(App.data.sessions, App.days);
       Panels.renderCost(App.data.stats);
+      Panels.renderActivity(App.data.activity);
+      Panels.renderProjectCost(App.data.activity);
 
       // Update session data and tab badges
       if (typeof SessionExplorer !== 'undefined') {

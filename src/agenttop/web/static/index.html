@@ -34,10 +34,10 @@
         <span class="live-text">LIVE</span>
       </div>
       <select id="time-range" class="neon-select">
-        <option value="0" selected>All Time</option>
         <option value="1">Today</option>
         <option value="7">7 Days</option>
-        <option value="30">30 Days</option>
+        <option value="30" selected>30 Days</option>
+        <option value="0">All Time</option>
       </select>
     </div>
   </header>
@@ -71,7 +71,7 @@
       <div id="model-panel" class="glass-panel mini-panel">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-icon">⬡</span> Model Usage</div>
-          <div class="model-legend"><span class="ml-dot ml-input"></span>In <span class="ml-dot ml-output"></span>Out <span class="ml-dot ml-cache"></span>Cache</div>
+          <div class="model-legend"><span class="ml-dot ml-input"></span>In <span class="ml-dot ml-output"></span>Out</div>
         </div>
         <div id="model-content" class="panel-body"></div>
       </div>
@@ -84,6 +84,14 @@
         <div id="hourly-content" class="panel-body"></div>
       </div>
 
+      <div id="daily-cost-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">◱</span> Daily Cost</div>
+          <div id="daily-cost-summary" class="panel-badge"></div>
+        </div>
+        <div id="daily-cost-content" class="panel-body"></div>
+      </div>
+
       <div id="cost-panel" class="glass-panel mini-panel">
         <div class="panel-header">
           <div class="panel-title"><span class="panel-icon">◇</span> Cost Breakdown</div>
@@ -92,13 +100,21 @@
         <div id="cost-content" class="panel-body"></div>
       </div>
 
-      <div id="workflow-panel" class="glass-panel mini-panel">
+      <div id="activity-panel" class="glass-panel mini-panel">
         <div class="panel-header">
-          <div class="panel-title"><span class="panel-icon">⬡</span> Workflow</div>
-          <div id="workflow-badge" class="panel-badge"></div>
+          <div class="panel-title"><span class="panel-icon">◧</span> Activity</div>
+          <div id="oneshot-badge" class="panel-badge"></div>
         </div>
-        <div id="workflow-content" class="panel-body"></div>
+        <div id="activity-content" class="panel-body"></div>
       </div>
+
+      <div id="project-cost-panel" class="glass-panel mini-panel">
+        <div class="panel-header">
+          <div class="panel-title"><span class="panel-icon">◇</span> Cost by Project</div>
+        </div>
+        <div id="project-cost-content" class="panel-body"></div>
+      </div>
+
     </div>
   </main>
 
@@ -128,7 +144,6 @@
   <script src="/static/js/stats.js"></script>
   <script src="/static/js/panels.js"></script>
   <script src="/static/js/session-explorer.js"></script>
-  <script src="/static/js/workflow.js"></script>
   <script src="/static/js/optimizer.js"></script>
 </body>
 </html>

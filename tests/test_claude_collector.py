@@ -416,8 +416,11 @@ class TestParseSessionJsonl:
         collector = ClaudeCodeCollector(tmp_claude_dir)
         sessions = collector._parse_all_project_sessions()
         s = sessions[0]
-        assert s.models_used["claude-sonnet-4-5-20250514"] == 2
-        assert s.models_used["claude-opus-4-5-20250514"] == 1
+        assert s.models_used["claude-sonnet-4-5-20250514"]["count"] == 2
+        assert s.models_used["claude-opus-4-5-20250514"]["count"] == 1
+        # Verify token breakdown is present
+        assert "inputTokens" in s.models_used["claude-sonnet-4-5-20250514"]
+        assert "outputTokens" in s.models_used["claude-sonnet-4-5-20250514"]
 
 
 # ── Token accounting tests ──────────────────────────────────

@@ -4,7 +4,7 @@ const Stats = {
   _prevValues: {},
   _currentBudget: null,
 
-  render(stats, budget = null) {
+  render(stats, budget = null, models = null) {
     Stats._currentBudget = budget;
     const ribbon = document.getElementById('stats-ribbon');
     if (!stats || stats.length === 0) {

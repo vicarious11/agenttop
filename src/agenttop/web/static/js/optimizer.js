@@ -12,6 +12,14 @@ const Optimizer = {
     const fsBtn = document.getElementById('drawer-fullscreen');
     const chevron = document.getElementById('drawer-chevron');
 
+    // Legacy drawer UI — not present in the current layout (replaced by
+    // the Analyze tab in session-explorer.js). No-op safely if the DOM
+    // nodes were removed, but keep the rest of the module usable in case
+    // the drawer gets reinstated.
+    if (!drawer || !handle || !fsBtn) {
+      return;
+    }
+
     drawer.classList.add('collapsed');
 
     // Pre-fetch analysis in background

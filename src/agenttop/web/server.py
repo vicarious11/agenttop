@@ -141,6 +141,23 @@ def _build_session_index() -> dict[str, Any]:
     return index
 
 
+@app.get("/api/activity")
+def api_activity(days: int = 0) -> JSONResponse:
+    """Activity classification, one-shot rate, cost by project."""
+    from agenttop.analysis.classifier import (
+        classify_sessions,
+        compute_cost_by_project,
+        compute_oneshot_rate,
+    )
+
+    sessions = _collect_all_sessions(days)
+    return JSONResponse({
+        "activities": classify_sessions(sessions),
+        "oneshot_rate": compute_oneshot_rate(sessions),
+        "cost_by_project": compute_cost_by_project(sessions)[:10],
+    })
+
+
 @app.get("/api/sessions")
 def api_sessions(days: int = 7) -> JSONResponse:
     sessions = _collect_all_sessions(days)
@@ -688,11 +705,53 @@ async def api_analyze_sessions(req: AnalyzeSessionsRequest) -> JSONResponse:
     if not selected_sessions:
         return JSONResponse({"error": "No matching sessions found"}, status_code=404)
 
-    stats = _get_all_stats(0)
-    model_usage = (
-        _claude.get_model_usage()
-        if _claude and _claude.is_available() else {}
+    # Build scoped stats from selected sessions only (not global)
+    from collections import defaultdict
+    scoped_tool_stats: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "tool": "", "display_name": "", "sessions_today": 0,
+            "messages_today": 0, "tokens_today": 0,
+            "estimated_cost_today": 0.0, "status": "active",
+            "tool_calls_today": 0, "hourly_tokens": [0] * 24,
+        },
     )
+    for s in selected_sessions:
+        tool = s.tool.value
+        d = scoped_tool_stats[tool]
+        d["tool"] = tool
+        d["display_name"] = tool
+        d["sessions_today"] += 1
+        d["messages_today"] += s.message_count
+        d["tokens_today"] += s.total_tokens
+        d["estimated_cost_today"] += s.estimated_cost_usd
+        d["tool_calls_today"] += s.tool_call_count
+    stats = list(scoped_tool_stats.values())
+
+    # Build model usage from selected sessions' exact per-model tokens
+    scoped_model_usage: dict[str, dict[str, int]] = defaultdict(
+        lambda: {
+            "inputTokens": 0, "outputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+        },
+    )
+    for s in selected_sessions:
+        for model_id, usage in (s.models_used or {}).items():
+            if isinstance(usage, dict):
+                for k in (
+                    "inputTokens", "outputTokens",
+                    "cacheReadInputTokens",
+                    "cacheCreationInputTokens",
+                ):
+                    scoped_model_usage[model_id][k] += (
+                        usage.get(k, 0)
+                    )
+            else:
+                # Legacy: models_used was {model: count}
+                scoped_model_usage[model_id]["inputTokens"] += (
+                    s.total_tokens
+                )
+    model_usage = dict(scoped_model_usage)
 
     optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
     try:
