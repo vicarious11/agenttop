@@ -1,7 +1,7 @@
 /* agenttop — Main application controller v3 */
 
 const App = {
-  days: 0,
+  days: 30,
   ws: null,
   _currentTab: 'overview',
   data: { graph: null, stats: [], models: {}, hours: {}, sessions: [] },

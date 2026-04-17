@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from textual.app import ComposeResult
@@ -265,28 +265,48 @@ class DailyCostSparkline(Static):
         yield Static("", id="daily-xaxis", classes="chart-xaxis")
 
     def refresh_data(
-        self, sessions: list[Session], days: int = 0,
+        self, sessions: list[Session], days: int = 30,
     ) -> None:
-        daily: dict[str, float] = defaultdict(float)
-        for s in sessions:
-            daily[s.start_time.strftime("%Y-%m-%d")] += (
-                s.estimated_cost_usd
-            )
         now = datetime.now()
+        today = now.date()
+
+        # Per-day totals
+        daily: dict[date, float] = defaultdict(float)
+        for s in sessions:
+            daily[s.start_time.date()] += s.estimated_cost_usd
+
+        # Total day-span to cover
         if days > 0:
             nd = days
         elif sessions:
-            # "All time" — span from the earliest session to today.
-            earliest = min(s.start_time for s in sessions)
-            nd = max((now.date() - earliest.date()).days + 1, 7)
+            earliest = min(s.start_time.date() for s in sessions)
+            nd = max((today - earliest).days + 1, 7)
         else:
             nd = 7
+
+        # Auto-bucket so visible bars stay readable.
+        #   ≤ 60 days  → daily bars
+        #   ≤ 365 days → weekly bars
+        #   >  365     → monthly bars
+        if nd <= 60:
+            bucket_days, unit = 1, "d"
+        elif nd <= 365:
+            bucket_days, unit = 7, "wk"
+        else:
+            bucket_days, unit = 30, "mo"
+
+        nbuckets = (nd + bucket_days - 1) // bucket_days
         values: list[float] = []
-        dates: list[str] = []
-        for d in range(nd):
-            dt = (now - timedelta(days=nd - 1 - d)).strftime("%Y-%m-%d")
-            dates.append(dt)
-            values.append(daily.get(dt, 0.0))
+        bucket_start_dates: list[date] = []
+        for i in range(nbuckets):
+            # Oldest bucket first; end-offset is days-ago of the NEWEST day in the bucket
+            end_offset = (nbuckets - 1 - i) * bucket_days
+            start_offset = end_offset + bucket_days - 1
+            bucket_start_dates.append(today - timedelta(days=start_offset))
+            total_bucket = 0.0
+            for off in range(end_offset, start_offset + 1):
+                total_bucket += daily.get(today - timedelta(days=off), 0.0)
+            values.append(total_bucket)
 
         try:
             spark = self.query_one("#spark", Sparkline)
@@ -299,21 +319,27 @@ class DailyCostSparkline(Static):
         avg = total / max(len(pos), 1)
         peak = max(values) if values else 0
         pidx = values.index(peak) if peak > 0 else 0
-        pdate = dates[pidx][-5:] if dates else ""
+        peak_label = (
+            bucket_start_dates[pidx].strftime("%m-%d") if bucket_start_dates else ""
+        )
 
         summary = (
             f"[bold yellow]{human_cost(total)}[/] total    "
-            f"[yellow]{human_cost(avg)}[/]/d avg    "
+            f"[yellow]{human_cost(avg)}[/]/{unit} avg    "
             f"peak [bold]{human_cost(peak)}[/] "
-            f"[dim]({pdate})[/]"
+            f"[dim]({peak_label})[/]"
         )
 
-        # 5 evenly-spaced date ticks across the range
-        tick_indices = [
-            0, len(dates) // 4, len(dates) // 2,
-            3 * len(dates) // 4, len(dates) - 1,
-        ] if dates else []
-        tick_labels = [dates[i][-5:] for i in tick_indices] if dates else []
+        # 5 evenly-spaced X-axis ticks across the buckets
+        if bucket_start_dates:
+            n = len(bucket_start_dates)
+            tick_indices = sorted({
+                0, n // 4, n // 2, 3 * n // 4, n - 1,
+            })
+            fmt = "%Y-%m" if unit == "mo" else "%m-%d"
+            tick_labels = [bucket_start_dates[i].strftime(fmt) for i in tick_indices]
+        else:
+            tick_labels = []
         width = max(self.size.width - 2, 40)
         xaxis = _xaxis_line(tick_labels, width)
 

@@ -186,25 +186,40 @@ const Panels = {
       nDays = 7;
     }
 
+    // Auto-bucket so bars stay readable: daily ≤60d, weekly ≤365d, monthly beyond
+    let bucketDays, unit, unitLabel;
+    if (nDays <= 60)       { bucketDays = 1;  unit = 'd';  unitLabel = '/d'; }
+    else if (nDays <= 365) { bucketDays = 7;  unit = 'wk'; unitLabel = '/wk'; }
+    else                   { bucketDays = 30; unit = 'mo'; unitLabel = '/mo'; }
+
+    const nBuckets = Math.ceil(nDays / bucketDays);
     const bars = [];
-    for (let i = nDays - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = Panels._localDayKey(d);
-      bars.push({ date: key, cost: byDay[key] || 0, day: d });
+    for (let i = 0; i < nBuckets; i++) {
+      const endOffset = (nBuckets - 1 - i) * bucketDays;
+      const startOffset = endOffset + bucketDays - 1;
+      let cost = 0;
+      for (let off = endOffset; off <= startOffset; off++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - off);
+        cost += byDay[Panels._localDayKey(d)] || 0;
+      }
+      const bucketStart = new Date(today);
+      bucketStart.setDate(today.getDate() - startOffset);
+      const label = unit === 'mo'
+        ? bucketStart.toISOString().slice(0, 7)   // YYYY-MM
+        : Panels._localDayKey(bucketStart).slice(5);  // MM-DD
+      bars.push({ cost, label });
     }
 
-    // Floor to avoid div-by-zero when all bars are zero
     const max = Math.max(...bars.map(b => b.cost), 0.001);
     const total = bars.reduce((s, b) => s + b.cost, 0);
     const nonZero = bars.filter(b => b.cost > 0);
     const avg = nonZero.length > 0 ? total / nonZero.length : 0;
     const peakBar = bars.reduce((a, b) => b.cost > a.cost ? b : a, bars[0]);
-    const peakLabel = peakBar.date.slice(5);
 
     if (summary) {
       summary.textContent = peakBar.cost > 0
-        ? `peak ${App.formatCost(peakBar.cost)} ${peakLabel}`
+        ? `peak ${App.formatCost(peakBar.cost)} ${peakBar.label}`
         : '';
     }
 
@@ -214,9 +229,8 @@ const Panels = {
           const pct = Math.max((b.cost / max * 100), b.cost > 0 ? 2 : 0);
           const intensity = b.cost / max;
           const opacity = b.cost > 0 ? (0.35 + intensity * 0.65) : 0.1;
-          const label = b.date.slice(5);
           return `
-            <div class="day-col" title="${label}: ${App.formatCost(b.cost)}">
+            <div class="day-col" title="${b.label}: ${App.formatCost(b.cost)}">
               <div class="day-bar-wrap">
                 <div class="day-bar" style="height:${pct}%;opacity:${opacity}"></div>
               </div>
@@ -226,8 +240,8 @@ const Panels = {
       </div>
       <div class="daily-foot">
         <span>total ${App.formatCost(total)}</span>
-        <span>avg ${App.formatCost(avg)}/d</span>
-        <span>${nDays}d</span>
+        <span>avg ${App.formatCost(avg)}${unitLabel}</span>
+        <span>${nBuckets} × ${bucketDays > 1 ? bucketDays + 'd' : 'day'}</span>
       </div>
     `;
   },
