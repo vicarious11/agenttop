@@ -193,17 +193,26 @@ def _make_sessions(
             tb["Agent"] = random.randint(0, 1)
             tb = {k: v for k, v in tb.items() if v > 0}
 
-        # Model used for this session
+        # Model used for this session (exact token breakdown)
         model_choices = [
             "claude-opus-4-6",
             "claude-sonnet-4-6",
             "claude-haiku-4-5",
         ]
         model_weights = [30, 50, 20]
-        mu: dict[str, int] = {}
+        mu: dict[str, Any] = {}
         if tool == ToolName.CLAUDE_CODE:
             m = random.choices(model_choices, model_weights, k=1)[0]
-            mu[m] = msg_count
+            inp = int(tokens * 0.25)
+            out = int(tokens * 0.55)
+            cr = int(tokens * 0.2)
+            mu[m] = {
+                "inputTokens": inp,
+                "outputTokens": out,
+                "cacheReadInputTokens": cr,
+                "cacheCreationInputTokens": 0,
+                "count": msg_count,
+            }
 
         sessions.append(Session(
             id=sid,

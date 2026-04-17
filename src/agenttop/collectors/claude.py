@@ -130,7 +130,7 @@ class _ParsedSession:
         self.cache_read: int = 0
         self.cache_create: int = 0
         self.tool_calls: int = 0
-        self.models_used: dict[str, int] = defaultdict(int)
+        self.models_used: dict[str, dict] = {}
         self.tool_name_counts: dict[str, int] = defaultdict(int)
         self._cwd_set: bool = False
 
@@ -348,7 +348,18 @@ class ClaudeCodeCollector(BaseCollector):
         session.tool_calls += tool_calls
         for tn in tool_names:
             session.tool_name_counts[tn] += 1
-        session.models_used[model] += 1
+        if model not in session.models_used:
+            session.models_used[model] = {
+                "inputTokens": 0, "outputTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0, "count": 0,
+            }
+        mu = session.models_used[model]
+        mu["inputTokens"] += input_tokens
+        mu["outputTokens"] += output_tokens
+        mu["cacheReadInputTokens"] += cache_read
+        mu["cacheCreationInputTokens"] += cache_create
+        mu["count"] += 1
 
     # ──────────────────────────────────────────────────────────
     #  SECONDARY: Legacy stats-cache.json + history.jsonl

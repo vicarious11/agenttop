@@ -86,9 +86,9 @@ Six panels. No plotext. Pure Rich text rendering. All data computed from actual 
 
 Three tabs: **Overview** · **Sessions** · **Analyze**
 
-- **Overview** — force-directed knowledge graph (D3), model usage (input/output/cache), hourly activity, cost breakdown, workflow intelligence
-- **Sessions** — full-page browser with Google-style pagination. Search by project or prompt. Sort by cost, time, tokens. Click any session to see complete prompt history
-- **Analyze** — select sessions (All / Last 10 / Top Cost), run LLM analysis, get a deep-dive report with score, grades, cost forensics by project and model, anti-patterns, recommendations with estimated savings
+- **Overview** — force-directed knowledge graph (D3), model usage (input/output/cache), hourly activity, cost breakdown, activity classification, cost by project
+- **Sessions** — full-page browser with Google-style pagination. Search by project or prompt. Sort by Recent / Top Cost / Least Cost / Most Tokens / Longest. Tool chips (Edit 5, Bash 3, Read 12) and model chips on every session. Click for full prompt history
+- **Analyze** — select sessions, run LLM analysis. Scoped to selected sessions only — cost, tokens, cache rate, model breakdown all computed from exactly what you selected, not global data. Deep-dive report with score, grades, cost forensics, anti-patterns, recommendations
 
 Keyboard: `o` overview · `s` sessions · `a` analyze. URL hash routing (`#sessions`, `#analyze`) for deep links.
 
@@ -140,16 +140,24 @@ Each session stores:
 
 ```python
 Session(
-    tool_breakdown={"Edit": 5, "Bash": 3, "Read": 12, "Grep": 4},  # actual tool calls
-    models_used={"claude-opus-4-6": 8, "claude-sonnet-4-6": 12},    # per-message model
-    prompts=["fix the race condition in...", ...],                    # up to 50
-    total_tokens=48291,          # exact for Claude, estimated for others
-    estimated_cost_usd=12.47,    # per-model pricing
+    tool_breakdown={"Edit": 5, "Bash": 3, "Read": 12, "Grep": 4},
+    models_used={
+        "claude-opus-4-6": {
+            "inputTokens": 4200, "outputTokens": 38000,
+            "cacheReadInputTokens": 12000,
+            "cacheCreationInputTokens": 800, "count": 8,
+        },
+    },
+    prompts=["fix the race condition in...", ...],
+    total_tokens=48291,
+    estimated_cost_usd=12.47,
     message_count=23,
     tool_call_count=24,
     # + id, tool, project, start_time, end_time
 )
 ```
+
+`models_used` stores exact per-model token breakdown — input, output, cache read, cache create, message count. No estimation. When you analyze 3 sessions, costs are computed from those 3 sessions' actual tokens, not global averages.
 
 ## AI Analysis
 

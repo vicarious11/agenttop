@@ -705,11 +705,53 @@ async def api_analyze_sessions(req: AnalyzeSessionsRequest) -> JSONResponse:
     if not selected_sessions:
         return JSONResponse({"error": "No matching sessions found"}, status_code=404)
 
-    stats = _get_all_stats(0)
-    model_usage = (
-        _claude.get_model_usage()
-        if _claude and _claude.is_available() else {}
+    # Build scoped stats from selected sessions only (not global)
+    from collections import defaultdict
+    scoped_tool_stats: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "tool": "", "display_name": "", "sessions_today": 0,
+            "messages_today": 0, "tokens_today": 0,
+            "estimated_cost_today": 0.0, "status": "active",
+            "tool_calls_today": 0, "hourly_tokens": [0] * 24,
+        },
     )
+    for s in selected_sessions:
+        tool = s.tool.value
+        d = scoped_tool_stats[tool]
+        d["tool"] = tool
+        d["display_name"] = tool
+        d["sessions_today"] += 1
+        d["messages_today"] += s.message_count
+        d["tokens_today"] += s.total_tokens
+        d["estimated_cost_today"] += s.estimated_cost_usd
+        d["tool_calls_today"] += s.tool_call_count
+    stats = list(scoped_tool_stats.values())
+
+    # Build model usage from selected sessions' exact per-model tokens
+    scoped_model_usage: dict[str, dict[str, int]] = defaultdict(
+        lambda: {
+            "inputTokens": 0, "outputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+        },
+    )
+    for s in selected_sessions:
+        for model_id, usage in (s.models_used or {}).items():
+            if isinstance(usage, dict):
+                for k in (
+                    "inputTokens", "outputTokens",
+                    "cacheReadInputTokens",
+                    "cacheCreationInputTokens",
+                ):
+                    scoped_model_usage[model_id][k] += (
+                        usage.get(k, 0)
+                    )
+            else:
+                # Legacy: models_used was {model: count}
+                scoped_model_usage[model_id]["inputTokens"] += (
+                    s.total_tokens
+                )
+    model_usage = dict(scoped_model_usage)
 
     optimizer = AIUsageOptimizer(_config, claude_collector=_claude)
     try:

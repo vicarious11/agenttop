@@ -483,7 +483,7 @@ const SessionExplorer = {
         <div class="rpt-stat"><div class="rpt-stat-value">${App.formatCost(summary.total_cost || 0)}</div><div class="rpt-stat-label">Cost</div></div>
         <div class="rpt-stat"><div class="rpt-stat-value">${summary.session_count || 0}</div><div class="rpt-stat-label">Sessions</div></div>
         <div class="rpt-stat"><div class="rpt-stat-value">${Math.round(summary.avg_messages || 0)}</div><div class="rpt-stat-label">Avg Msgs</div></div>
-        <div class="rpt-stat"><div class="rpt-stat-value">${Math.round((summary.cache_hit_rate || 0) * 100)}%</div><div class="rpt-stat-label">Cache Hit</div></div>
+        <div class="rpt-stat"><div class="rpt-stat-value">${Math.round(summary.cache_hit_rate || 0)}%</div><div class="rpt-stat-label">Cache Hit</div></div>
         <div class="rpt-stat"><div class="rpt-stat-value">${summary.active_tools || 0}</div><div class="rpt-stat-label">Tools</div></div>
       </div>`;
 
