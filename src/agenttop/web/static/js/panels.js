@@ -59,36 +59,35 @@ const Panels = {
       const input  = usage.inputTokens || 0;
       const output = usage.outputTokens || 0;
       const cache  = usage.cacheReadInputTokens || 0;
-      const total  = input + output + cache;
+      const billed = input + output;
+      const total  = billed + cache;
       const cost   = Panels.estimateCost(id, input, output, cache);
       const color  = Panels.MODEL_COLORS[Panels.getModelFamily(id)] || '#ff9944';
-      return { id, name: Panels.modelDisplayName(id), input, output, cache, total, cost, color };
-    }).filter(m => m.total > 0).sort((a, b) => b.total - a.total);
+      return { id, name: Panels.modelDisplayName(id), input, output, cache, billed, total, cost, color };
+    }).filter(m => m.total > 0).sort((a, b) => b.billed - a.billed);
 
     if (models.length === 0) {
       el.innerHTML = '<div class="panel-empty">No model activity</div>';
       return;
     }
 
-    const maxTotal = Math.max(...models.map(m => m.total), 1);
+    const maxBilled = Math.max(...models.map(m => m.billed), 1);
 
     el.innerHTML = models.map(m => {
-      const iPct = (m.input  / maxTotal * 100).toFixed(2);
-      const oPct = (m.output / maxTotal * 100).toFixed(2);
-      const cPct = (m.cache  / maxTotal * 100).toFixed(2);
+      const iPct = (m.input  / maxBilled * 100).toFixed(2);
+      const oPct = (m.output / maxBilled * 100).toFixed(2);
       return `
         <div class="model-row">
           <div class="model-info">
             <span class="model-name" style="color:${m.color}">${m.name}</span>
             <span class="model-stats">
-              <span class="model-tokens">${App.formatNum(m.total)}</span>
+              <span class="model-tokens">${App.formatNum(m.billed)}</span>
               <span class="model-cost">${App.formatCost(m.cost)}</span>
             </span>
           </div>
           <div class="model-bar-track">
             <div class="model-seg seg-input" style="width:${iPct}%" title="Input: ${App.formatNum(m.input)}"></div>
             <div class="model-seg seg-output" style="width:${oPct}%" title="Output: ${App.formatNum(m.output)}"></div>
-            <div class="model-seg seg-cache" style="width:${cPct}%" title="Cache: ${App.formatNum(m.cache)}"></div>
           </div>
         </div>
       `;
