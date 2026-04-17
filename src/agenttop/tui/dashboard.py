@@ -196,11 +196,30 @@ class OneshotPanel(Static):
         )
 
 
+def _xaxis_line(labels: list[str], width: int) -> str:
+    """Render a 1-line X-axis with labels spread across the width."""
+    if not labels or width <= 0:
+        return ""
+    if len(labels) == 1:
+        return labels[0].center(width)
+    slots = len(labels)
+    out = [" "] * width
+    for i, lbl in enumerate(labels):
+        pos = int(i * (width - 1) / (slots - 1))
+        pos = max(0, min(width - len(lbl), pos))
+        for j, ch in enumerate(lbl):
+            if pos + j < width:
+                out[pos + j] = ch
+    return "".join(out)
+
+
 class HourlyActivityPanel(Static):
-    """Hourly token activity — 24-hour sparkline."""
+    """Hourly token activity — 24-hour sparkline with axis labels."""
 
     def compose(self) -> ComposeResult:
+        yield Static("", id="hourly-summary", classes="chart-summary")
         yield Sparkline([], id="hourly-spark")
+        yield Static("", id="hourly-xaxis", classes="chart-xaxis")
 
     def refresh_data(self, stats: list[ToolStats]) -> None:
         hourly = [0] * 24
@@ -216,23 +235,34 @@ class HourlyActivityPanel(Static):
 
         total = sum(hourly)
         peak_idx = hourly.index(max(hourly)) if total > 0 else 0
-        peak_label = (
-            f"{peak_idx:02d}:00" if total > 0 else "--:--"
+        peak_val = max(hourly) if total > 0 else 0
+        peak_label = f"{peak_idx:02d}:00" if total > 0 else "--:--"
+
+        summary = (
+            f"[bold green]{human_tokens(total)}[/] tokens    "
+            f"peak [bold]{peak_label}[/] "
+            f"[dim]({human_tokens(peak_val)})[/]"
+        )
+        width = max(self.size.width - 2, 40)
+        xaxis = _xaxis_line(
+            ["00", "06", "12", "18", "23"], width,
         )
         try:
-            self.border_subtitle = (
-                f"total {human_tokens(total)} "
-                f" peak {peak_label}"
+            self.query_one("#hourly-summary", Static).update(summary)
+            self.query_one("#hourly-xaxis", Static).update(
+                f"[dim cyan]{xaxis}[/]"
             )
         except Exception:
             pass
 
 
 class DailyCostSparkline(Static):
-    """Wrapper around Textual Sparkline for daily cost."""
+    """Daily cost sparkline with X-axis date labels."""
 
     def compose(self) -> ComposeResult:
+        yield Static("", id="daily-summary", classes="chart-summary")
         yield Sparkline([], id="spark")
+        yield Static("", id="daily-xaxis", classes="chart-xaxis")
 
     def refresh_data(
         self, sessions: list[Session], days: int = 30,
@@ -244,8 +274,8 @@ class DailyCostSparkline(Static):
             )
         now = datetime.now()
         nd = days if days > 0 else 30
-        values = []
-        dates = []
+        values: list[float] = []
+        dates: list[str] = []
         for d in range(nd):
             dt = (now - timedelta(days=nd - 1 - d)).strftime("%Y-%m-%d")
             dates.append(dt)
@@ -263,11 +293,27 @@ class DailyCostSparkline(Static):
         peak = max(values) if values else 0
         pidx = values.index(peak) if peak > 0 else 0
         pdate = dates[pidx][-5:] if dates else ""
+
+        summary = (
+            f"[bold yellow]{human_cost(total)}[/] total    "
+            f"[yellow]{human_cost(avg)}[/]/d avg    "
+            f"peak [bold]{human_cost(peak)}[/] "
+            f"[dim]({pdate})[/]"
+        )
+
+        # 5 evenly-spaced date ticks across the range
+        tick_indices = [
+            0, len(dates) // 4, len(dates) // 2,
+            3 * len(dates) // 4, len(dates) - 1,
+        ] if dates else []
+        tick_labels = [dates[i][-5:] for i in tick_indices] if dates else []
+        width = max(self.size.width - 2, 40)
+        xaxis = _xaxis_line(tick_labels, width)
+
         try:
-            self.border_subtitle = (
-                f"total {human_cost(total)} "
-                f" avg {human_cost(avg)}/d "
-                f" peak {human_cost(peak)} {pdate}"
+            self.query_one("#daily-summary", Static).update(summary)
+            self.query_one("#daily-xaxis", Static).update(
+                f"[dim cyan]{xaxis}[/]"
             )
         except Exception:
             pass
@@ -287,29 +333,30 @@ class DashboardView(Static):
     }
 
     #dash-row-1 { height: 11; }
-    #dash-row-2 { height: 10; }
+    #dash-row-2 { height: 9; }
     #dash-row-3 { height: 10; }
     #dash-row-4 { height: 1fr; }
 
     #cost-project, #cost-model,
-    #daily-cost, #hourly, #activity,
-    #tools, #oneshot {
+    #activity, #tools, #oneshot {
         width: 1fr;
         border: round $accent 30%;
         padding: 0 1;
     }
 
-    #daily-cost, #hourly { padding: 0; }
-
     DailyCostSparkline, HourlyActivityPanel {
         width: 1fr;
         border: round $accent 30%;
         height: 100%;
+        padding: 0 1;
     }
 
+    .chart-summary { height: 1; color: $text; }
+    .chart-xaxis   { height: 1; }
+
     #spark, #hourly-spark {
-        height: 5;
-        margin: 0 1;
+        height: 1fr;
+        margin: 0;
     }
     #spark > .sparkline--max-color { color: $warning; }
     #spark > .sparkline--min-color { color: $accent; }
