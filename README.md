@@ -81,6 +81,10 @@ Keyboard (TUI): `d` dashboard · `s` sessions · `e` explorer · `a` analysis ·
 
 ### Terminal dashboard
 
+<p align="center">
+  <img src="assets/screenshots/agenttop-tui-demo.gif" alt="agenttop TUI" width="900">
+</p>
+
 7 panels, updates live:
 
 - **Cost by project** — which repo is burning your money
