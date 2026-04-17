@@ -36,23 +36,31 @@
 
 ## Install
 
-```bash
-git clone https://github.com/vicarious11/agenttop && cd agenttop && ./setup.sh
-```
-
-That's it. Handles Python, venv, deps, everything. Then:
+One line. Installs everything and asks you what to launch (web / TUI, real data / demo).
 
 ```bash
-source .venv/bin/activate
-agenttop                # terminal dashboard
-agenttop web            # web dashboard at localhost:8420
-agenttop stats          # quick CLI summary
-agenttop init           # configure LLM for AI analysis
+curl -fsSL https://raw.githubusercontent.com/vicarious11/agenttop/main/install.sh | bash
 ```
 
-Requirements: Python 3.10+. No Docker. No API keys needed. macOS, Linux, Windows.
+Skip the menu and jump straight into a mode:
 
-Keyboard: `d` dashboard · `s` sessions · `e` explorer · `a` analysis · `k` graph · `1-4` time range · `q` quit
+```bash
+curl -fsSL https://raw.githubusercontent.com/vicarious11/agenttop/main/install.sh | bash -s -- web-demo
+# modes: web | web-demo | tui | tui-demo | none
+```
+
+After install, run any of these:
+
+```bash
+agenttop               # TUI — your data
+agenttop --demo        # TUI — demo data (safe for recordings)
+agenttop web           # web dashboard at localhost:8420
+agenttop web --demo    # web dashboard — demo data
+```
+
+Requirements: Python 3.10+, git. No Docker. No API keys needed. macOS, Linux, Windows (WSL).
+
+Keyboard (TUI): `d` dashboard · `s` sessions · `e` explorer · `a` analysis · `k` graph · `1-4` time range · `q` quit
 
 ## What You See
 
